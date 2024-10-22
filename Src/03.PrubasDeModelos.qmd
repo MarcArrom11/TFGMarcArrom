@@ -1,0 +1,276 @@
+---
+title: "Nuevo modelo"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(survival)
+library(survminer)
+```
+
+```{r}
+Arkansas <- read_excel("Arkansas.xlsx", 
+                       col_types = c("numeric", "numeric", "text", 
+                                     "numeric", "text", "text", "text", 
+                                     "numeric", "numeric", "numeric", 
+                                     "numeric", "numeric", "numeric", 
+                                     "numeric", "numeric", "numeric", 
+                                     "numeric", "numeric", "numeric", 
+                                     "numeric", "numeric", "numeric", 
+                                     "numeric"))
+
+
+#ORDENAMOS EL DATA SET (VARIABLES FACTORES A LA IZQUIERDA | VARIABLES NUMERICAS A LA DERECHA)
+
+Arkansas <- Arkansas[, c("original order", "PATID", "PROT", "SEX", "RACE", "ISOTYPE", "AGE", "B2M", "CRP", "CREAT", "LDH", "ALB", "HGB", "ASPC", "BMPC", "MRI", "Cyto_Abn", "CPS1", "CPR1", "EFS_Censor", "EFS_Time", "OS_Censor", "OS_Time")]
+
+```
+
+```{r}
+covariates <- c("AGE", "SEX", "PROT", "B2M", "CRP", "CREAT","LDH","ALB","HGB", "ASPC","BMPC", "MRI","Cyto_Abn")
+univ_formulas <- sapply(covariates,
+                        function(x) as.formula(paste('Surv(OS_Time, OS_Censor)~', x)))
+                        
+univ_models <- lapply( univ_formulas, function(x){coxph(x, data = Arkansas)})
+# Extract data 
+univ_results <- lapply(univ_models,
+                       function(x){ 
+                          x <- summary(x)
+                          p.value<-signif(x$wald["pvalue"], digits=2)
+                          wald.test<-signif(x$wald["test"], digits=2)
+                          beta<-signif(x$coef[1], digits=2);#coeficient beta
+                          HR <-signif(x$coef[2], digits=2);#exp(beta)
+                          HR.confint.lower <- signif(x$conf.int[,"lower .95"], 2)
+                          HR.confint.upper <- signif(x$conf.int[,"upper .95"],2)
+                          HR <- paste0(HR, " (", 
+                                       HR.confint.lower, "-", HR.confint.upper, ")")
+                          res<-c(beta, HR, wald.test, p.value)
+                          names(res)<-c("beta", "HR (95% CI for HR)", "wald.test", 
+                                        "p.value")
+                          return(res)
+                          #return(exp(cbind(coef(x),confint(x))))
+                         })
+res <- t(as.data.frame(univ_results, check.names = FALSE))
+as.data.frame(res)
+```
+
+# Análisis del modelo
+
+P.valor de las variables de sexo, tratamient y Proteina C-Reactiva (CRP) nos indica que el nivel de sinificancia en el riesgo de muerte no es relevante.
+
+Por otra parte, tenemos otras variables que si contribuyen al riesgo de muerte, como son la edad, el ASPC, BMPC, MRI, HGB.
+
+Por último, los variables con mayor signifinacia son B2M, CREAT, LDH, ALB y Cyto_Abn.
+
+ALGUNAS CONSIDERACIONES Aunque la edad aparece con una signifancia "media", hay que tener en cuenta que la mayoria de los individuos, el 75% de ellos, tienen más de 50 años. Por lo que, en la base de datos, no tenemos suficientes individuos para representar a la población joven.
+
+Realicemos un estudio para determinar cual de las 13 variables consideradas son significativas para construir el modelo.
+
+```{r}
+mean(Arkansas$AGE)
+min(Arkansas$AGE)
+quantile(Arkansas$AGE, 0.15)
+quantile(Arkansas$AGE, 0.25)
+quantile(Arkansas$AGE, 0.5)
+
+```
+
+Si realizamos ahora, con las variables significativas, un modelo multivariante
+
+```{r}
+mod1 <- coxph(Surv(OS_Time, OS_Censor) ~ B2M + CREAT + LDH + ALB + Cyto_Abn + AGE + ASPC + BMPC + MRI + HGB, data =  Arkansas)
+summary(mod1)
+
+```
+
+Observamos que cuando combinamos la variables más significativas, la creatinina tiene una influencia mucho menor a cuando se analiza por separado.
+
+Esto, es debido a que la creatinina tiene un nivel de correlación alto con la B2M y el modelo no es capaz de identificar cual de las dos variables es la que es significativa en el modelo. (¿Cómo arreglar la **multicolinealidad**? 1. Eliminar una variable. 2. Combinar variables 3. Regularización: Lasso o Ridge)
+
+```{r}
+mod1_simplificado_SinEdad = coxph(Surv(OS_Time, OS_Censor) ~ B2M + CREAT + LDH + ALB + Cyto_Abn + ASPC + BMPC + MRI + HGB, data =  Arkansas)
+# Realizar el Likelihood Ratio Test (LRT)
+anova(mod1, mod1_simplificado_SinEdad, test = "LRT")
+```
+
+Obtenemos un p-valor muy cerca del nivel de signifancia.
+
+```{r}
+mod1_simplificado_SinHGB = coxph(Surv(OS_Time, OS_Censor) ~ B2M + CREAT + LDH + ALB + Cyto_Abn + AGE + ASPC + BMPC + MRI, data =  Arkansas)
+
+# Realizar el Likelihood Ratio Test (LRT)
+anova(mod1, mod1_simplificado_SinHGB, test = "LRT")
+```
+
+Obtenemos un p-valor elevado, por lo que no tenemos evidencia de que el modelo con la variable HGB sea mejor.
+
+```{r}
+library(ggcorrplot)
+Arkansas %>%
+  select(7:16) %>%
+  na.omit(.) %>% 
+  cor(.) %>% 
+  ggcorrplot(., hc.order = TRUE,
+        type = "lower",
+        lab = TRUE,              # Añade los valores de correlación
+        lab_size = 3.5,            # Tamaño del texto de los valores
+        colors = c("#4575b4", "#f7f7f7", "#d73027"))+
+  ggtitle("Mapa de Correlación de Variables") +    # Añadir título
+  labs(x = "Variables", y = "Variables") +         # Añadir títulos a los ejes
+  theme(plot.title = element_text(hjust = 0.5, size = 16),   # Centrar el título y ajustar tamaño
+        axis.title.x = element_text(size = 14),   # Tamaño del título del eje x
+        axis.title.y = element_text(size = 14))   # Tamaño del título del eje y
+```
+
+```{r}
+# Modelo inicial con todas las variables
+modelo_inicial <- coxph(Surv(OS_Time, OS_Censor) ~ AGE + SEX + PROT + B2M+ CRP+ CREAT + LDH + ALB + HGB + ASPC + BMPC + MRI + Cyto_Abn, data = na.omit(Arkansas))
+
+# Aplicar la selección de variables hacia atrás
+modelo_backward <- step(modelo_inicial, direction = "backward")
+
+summary(modelo_backward)
+
+```
+
+Estadístico de decisión de las variables
+
+Comparisons between a number of possible models, which need not nec- essarily be nested, can also be made on the basis of Akaike’s information criterion, given by AIC = −2 log Lˆ + 2q, in which q is the number of unknown β-parameters in the model. The smaller the value of this statistic, the better the model, but unlike the −2 log Lˆ statis- tic, the value of AIC will tend to increase when unnecessary terms are added to the model.
+
+ANÁLISIS DEL MÓDELO "FINAL"
+
+age: El coeficiente es positivo (0.016140), lo que sugiere que un aumento en la edad incrementa ligeramente el riesgo, pero el valor p (0.063447) indica que el efecto es marginalmente significativo (cercano a 0.05, pero no lo suficiente). B2M: Tiene un coeficiente positivo (0.045930), lo que indica que el aumento en B2M incrementa el riesgo de manera significativa (p = 2.81e-06). Su HR es 1.047, lo que significa que por cada unidad adicional en B2M, el riesgo aumenta en un 4.7%. LDH: También tiene un coeficiente positivo y es altamente significativo (p = 0.000197). Un aumento en LDH incrementa el riesgo, aunque en menor magnitud, un 0.04% (HR = 1.004). ALB: El coeficiente es negativo (-0.438302), lo que significa que un aumento en la albúmina disminuye el riesgo. Es un efecto significativo (p = 0.000637) y el HR de 0.645131 indica una reducción del 35.49% en el riesgo por cada unidad adicional de albúmina. MRI: Tiene un coeficiente positivo y significativo (p = 0.013479), indicando que un aumento en los valores de MRI incrementa el riesgo (HR = 1.011635). Cyto_Abn: Tiene un coeficiente positivo (0.604041), lo que indica que la presencia de anomalías citogenéticas aumenta significativamente el riesgo (p = 0.000283), con un HR de 1.829496, es decir, el riesgo se incrementa en un 82.95%.
+
+GRÁFICO QUE MUESTRA COMO SE VAN ELIMINANDO LAS VARIABLES
+
+```{r}
+# Crear manualmente el data frame con las variables y las iteraciones
+variables <- c("PROT","Age", "Sex", "B2M", "CRP", "CREAT", "LDH", "ALB", "HGB", "ASPC", "BMPC", "MRI", "Cyto_Abn")
+
+# Asignar en qué iteración fue eliminada cada variable (0 si no fue eliminada)
+eliminadas_iteracion <- c(5,0, 4, 0, 3, 2, 1, 0, 8, 6, 7, 0, 0)
+
+# Crear el data frame con las variables y las iteraciones de eliminación
+df <- data.frame(Variable = variables, Iteracion_Eliminada = eliminadas_iteracion)
+
+# Máximo número de iteraciones (ajusta según tu caso)
+max_iter <- 8
+
+# Crear un nuevo data frame para indicar presencia (1) o eliminación (0)
+iteraciones_df <- data.frame(Variable = rep(variables, each = max_iter),
+                             Iteracion = rep(1:max_iter, times = length(variables)),
+                             Status = 1)
+
+# Modificar el status a 0 cuando la variable fue eliminada
+for (i in 1:nrow(df)) {
+  if (df$Iteracion_Eliminada[i] > 0) {
+    iteraciones_df$Status[iteraciones_df$Variable == df$Variable[i] & 
+                          iteraciones_df$Iteracion >= df$Iteracion_Eliminada[i]] <- 0
+  }
+}
+
+# Filtrar sólo las filas donde la variable aún está presente (Status == 1)
+iteraciones_df <- iteraciones_df[iteraciones_df$Status == 1, ]
+
+
+
+# Crear el gráfico con líneas horizontales para cada variable
+ggplot(iteraciones_df, aes(x = Iteracion, y = Variable)) +
+  geom_line(aes(group = Variable), size = 1.5) +  # Colorear cada variable de forma distinta
+  labs(title = "Proceso de eliminación de variables manual",
+       x = "Iteraciones", 
+       y = "Variables") +
+  scale_x_continuous(breaks = seq(0, max_iter, by = 1)) + 
+  theme_minimal() +
+  theme(legend.position = "none")  # Eliminar leyenda si no es necesaria
+
+
+```
+
+Gráfico del modelo de Cox
+
+```{r}
+curva_supervivencia <- survfit(modelo_backward)
+
+# Graficar las curvas
+ggsurvplot(curva_supervivencia, data = Arkansas, 
+           conf.int = TRUE,          # Añadir intervalo de confianza
+           pval = TRUE,              # Mostrar valor p
+           risk.table = TRUE,        # Mostrar tabla de riesgos
+           ggtheme = theme_minimal(),# Tema estético
+           palette = c("#E69F00", "#56B4E9"))  # Colores personalizables
+```
+
+# Gráficos Kaplan-Meier
+
+## Preparación de los datos
+
+```{r}
+# Cargar la librería dplyr
+library(dplyr)
+
+# Dataset transformado con nuevas columnas que indican si están en el rango (0) o fuera del rango (1)
+datosEstratificados <- Arkansas %>%
+  mutate(
+    AGE_flag = ifelse(AGE <= 50, 0, 1),  
+    B2M_flag = ifelse(B2M <= 2.7, 0, 1),  
+    CREAT_flag = ifelse(SEX == "male" & CREAT >= 0.74 & CREAT <= 1.35, 0, 
+                 ifelse(SEX == "female" & CREAT >= 0.54 & CREAT <= 1.04, 0, 1)),
+    LDH_flag = ifelse(LDH >= 122 & LDH <= 222, 0, 1),  
+    ALB_flag = ifelse(ALB >= 3.5 & ALB <= 5, 0, 1),     
+    # Para MRI no hay niveles normales, lo dividimos por quantiles
+    MRI_flag = ifelse(MRI <= quantile(na.omit(Arkansas$MRI), 0.25),0,
+                      ifelse(MRI >= quantile(na.omit(Arkansas$MRI), 0.25) & MRI <= quantile(na.omit(Arkansas$MRI), 0.75),1,2))
+  )
+
+# Mostrar las primeras filas del nuevo dataset
+head(datosEstratificados, 30)
+  
+```
+
+```{r}
+  
+nrow(datosEstratificados[datosEstratificados$CREAT_flag == 0 & datosEstratificados$B2M_flag == 0,])
+# Ajustar el modelo de supervivencia
+
+# Crear el gráfico de supervivencia
+
+ggsurvplot(
+  survfit(Surv(OS_Time, OS_Censor) ~ AGE_flag, data = datosEstratificados), 
+  data = datosEstratificados, 
+  pval = TRUE,
+  palette = c("#0072B2", "#D95F02", "#F0E442", "#999999")  # Define la paleta de colores
+)
+
+ggsurvplot(
+  survfit(Surv(OS_Time, OS_Censor) ~ B2M_flag, data = datosEstratificados), 
+  data = datosEstratificados, 
+  pval = TRUE,
+  palette = c("#0072B2", "#D95F02", "#F0E442", "#999999")  # Define la paleta de colores
+)
+
+ggsurvplot(
+  survfit(Surv(OS_Time, OS_Censor) ~ ALB_flag, data = datosEstratificados), 
+  data = datosEstratificados, 
+  pval = TRUE,
+  palette = c("#0072B2", "#D95F02", "#F0E442", "#999999")  # Define la paleta de colores
+)
+
+ggsurvplot(
+  survfit(Surv(OS_Time, OS_Censor) ~ LDH_flag, data = datosEstratificados), 
+  data = datosEstratificados, 
+  pval = TRUE,
+  palette = c("#0072B2", "#D95F02", "#F0E442", "#999999")  # Define la paleta de colores
+)
+
+ggsurvplot(
+  survfit(Surv(OS_Time, OS_Censor) ~ MRI_flag, data = datosEstratificados), 
+  data = datosEstratificados, 
+  pval = TRUE,
+  palette = c("#0072B2", "#D95F02", "#F0E442", "#999999")  # Define la paleta de colores
+)
+
+```
