@@ -22,4 +22,5 @@ summary(modelo1)
 modelo1$iter
 
 ### Varianzas
+modelo1$var
 sqrt(modelo1$var)
