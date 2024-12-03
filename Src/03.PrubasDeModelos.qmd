@@ -1,11 +1,10 @@
-    ---
-title: "Nuevo modelo"
-format: html
-editor: visual
-
-Rendering:
-    embed-resources: true
+```         
 ---
+```
+
+title: "Nuevo modelo" format: html editor: visual
+
+Rendering: embed-resources: true ---
 
 # Librerias
 
@@ -22,6 +21,7 @@ library(ggcorrplot) # Para la creación del gráfico de correlación
 library(dplyr)
 library(patchwork)
 library(scales)
+library(viridis)
 ```
 
 # Datos
@@ -50,7 +50,7 @@ La base de datos *Arkansas* está formada por 564 observaciones de las cuales se
 ```{r, echo = FALSE, warning=FALSE}
 visualizacion_variables = data.frame(
   nombres_variables = colnames(Arkansas),
-  variable_usada = c("No","No","Si","Si","No","No (de momento)","Si","Si","Si","Si","Si","Si","Si","Si","Si","Si","Si","No","No","No (de momento)","No (de momento)","Si","Si"),
+  variable_usada = c("No","No","Si","Si","No","Si","Si","Si","Si","Si","Si","Si","Si","Si","Si","Si","Si","No","No","No (de momento)","No (de momento)","Si","Si"),
   explicacion = c("Orden de los datos",
                   "Identificación Paciente",
                   "Tratamiento Recibido (\"TT2\" o \"TT3\")",
@@ -88,7 +88,7 @@ tabla_visualizacion_variables <- visualizacion_variables %>%
   ) %>%
   cols_label(
     nombres_variables = "Variable",
-    variable_usada = "Usada",
+    variable_usada = "Analizada",
     explicacion = "Explicación"
   ) %>%
   tab_options(
@@ -120,7 +120,8 @@ faltantes_por_variable <- faltantes_por_variable[faltantes_por_variable > 0]
 datos_faltantes <- data.frame(Variable = names(faltantes_por_variable), 
                               Faltantes = faltantes_por_variable) %>% as_tibble
 
-# Mostrar la tabla
+
+Arkansas_SinDatosFaltantes = na.omit(Arkansas)
 
 
 # Asumimos que 'datos_faltantes' es un dataframe con columnas 'Variable' y 'Faltantes'
@@ -157,7 +158,7 @@ Arkansas <- Arkansas %>%
     CREAT_flag = ifelse(SEX == "male" & CREAT >= 0.74 & CREAT <= 1.35, 0, 
                  ifelse(SEX == "female" & CREAT >= 0.54 & CREAT <= 1.04, 0, 1)), # 0 = "Nivel sano" , 1 = "Nivel NO sano"
     
-    CRP_flag = ifelse(CRP <= 1, 1, # 0 = "Nivel sano" 
+    CRP_flag = ifelse(CRP <= 1, 0, # 0 = "Nivel sano" 
                 ifelse(CRP > 1 & CRP <= 10, 1,2)), # 2 = "Inflamación moderada" , # 3 = "Inflamación marcada"
     
     LDH_flag = ifelse(LDH >= 122 & LDH <= 222, 0, 1),  # 0 = "Nivel sano" , 1 = "Nivel NO sano"
@@ -175,38 +176,50 @@ Arkansas <- Arkansas %>%
 numero_observaciones = nrow(Arkansas)
 ```
 
-```{r B2M, echo = FALSE, warning=FALSE}
 
+
+
+```{r B2M, echo = FALSE, warning=FALSE}
 proporcionB2M_sano = round(nrow(Arkansas[Arkansas$B2M_flag == 0,]) / numero_observaciones,4)
 proporcionB2M_mal = round(nrow(Arkansas[Arkansas$B2M_flag == 1, ]) / numero_observaciones,4)
 
+custom_colors <- viridis(2, option = "viridis")  # Paleta de dos colores
+
+# Crear una variable ficticia para la leyenda
+Arkansas$Estado <- ifelse(Arkansas$B2M_flag == 0, "Saludable", "No saludable")
+
 grafico_B2M = Arkansas %>%
-  ggplot(aes(x = B2M)) +
-  geom_histogram(fill = "#1f78b4", color = "black", alpha = 0.9) +
-  # Rectangulo valores normales
-  annotate("rect", xmin = -0.3, xmax = 2.7, ymin = -1, ymax = Inf, alpha = 0.45,, fill = "lightgreen", bins = 20) +  # Cambiado el color del rectángulo
-  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = 0, ymax = 0, fill = "Niveles Saludables"), ) +
-  scale_fill_manual(name = " ", values = "lightgreen" )+
+  ggplot(aes(x = B2M, fill = Estado)) +  # Asociar 'Estado' al argumento fill
+  geom_histogram(color = "black", alpha = 1, binwidth = 3, size = 0.5) +
+  
+  # Personalización de la leyenda con proporciones
+  scale_fill_manual(
+    name = "Estado", 
+    values = c("lightblue", "lightgreen"),
+    labels = c(
+      paste0("No saludable: ", proporcionB2M_mal * 100, "%"),
+      paste0("Saludable: ", proporcionB2M_sano * 100, "%")
+    )
+  ) +
   
   # Títulos
   ggtitle("Distribución de B2M") +
   labs(x = "Nivel de B2M", y = "Frecuencia") +
   theme_classic() +
-  scale_x_continuous(breaks = pretty_breaks(n = 20)) + 
-  coord_flip()+  # Gira el gráfico a horizontal
-   # Añadir el recuadro con la proporción
-  annotate("rect", 
-           xmin = 35, xmax = 41, 
-           ymin = 100, ymax = 205, 
-           alpha = 0.2, fill = "grey")+
-  annotate("text", x = 40, y = 200, hjust = 1, vjust = 1, 
-           label = paste0("Rango saludable: ", proporcionB2M_sano * 100, "%"),
-           color = "black", size = 3.5, fontface = "bold") + # Ajusta el tamaño y posición si es necesario
-  annotate("text", x = 37.5, y = 200, hjust = 1,vjust = 1, 
-           label = paste0("Rango no saludable: ", proporcionB2M_mal * 100, "%"),
-           color = "black", size = 3.5, fontface = "bold")   # Ajusta el tamaño y posición si es necesario
+  theme(
+    plot.title = element_text(size = 21, face = "bold", hjust = 0.5), # Título principal
+    axis.text.x = element_text(size = 10),  # Tamaño del texto del eje X
+    axis.text.y = element_text(size = 14),  # Tamaño del texto del eje Y
+    axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+    axis.title.y = element_text(size = 18),  # Tamaño del título del eje Y
+    legend.text = element_text(size = 15),  # Tamaño del texto de la leyenda
+    legend.title = element_text(size = 18), # Tamaño y estilo del título de la leyenda
+    legend.key.size = unit(0.7, "cm"),  # Tamaño de las claves de la leyenda
+    legend.position = "top"  # Posición de la leyenda
+  ) +
+  scale_x_continuous(breaks = pretty_breaks(n = 20))
+# Gira el gráfico a horizontal
   
-
 # Guardar el gráfico como PDF
 ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/grafico_barras_B2M.pdf", 
        plot = grafico_B2M,  # Extraer solo el gráfico principal
@@ -214,226 +227,270 @@ ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables
 
 print(grafico_B2M)
 
-
 ```
 
-```{r CREAT, echo = FALSE, warning=FALSE}
-numero_hombres = nrow(Arkansas[Arkansas$SEX == "male", ])
-numero_mujeres = nrow(Arkansas[Arkansas$SEX == "female", ])
+
+
+
+
+
+```{r}
 proporcionCREAT_sano_hombres = round(nrow(Arkansas[Arkansas$CREAT_flag == 0 & Arkansas$SEX == "male",]) / numero_hombres,4)
 proporcionCREAT_mal_hombres = round(nrow(Arkansas[Arkansas$CREAT_flag == 1 & Arkansas$SEX == "male", ]) / numero_hombres, 4)
-proporcionCREAT_sano_mujeres = round(nrow(Arkansas[Arkansas$CREAT_flag == 0 & Arkansas$SEX == "female",]) / numero_mujeres,4)
-proporcionCREAT_mal_mujeres = round(nrow(Arkansas[Arkansas$CREAT_flag == 1 & Arkansas$SEX == "female", ]) / numero_mujeres,4)
 
+Arkansas$Estado_hombres <- ifelse(Arkansas$CREAT_flag == 0 & Arkansas$SEX == "male", "Saludable", "No saludable")
 
 grafico_CREAT_MALE = Arkansas %>%
   filter(SEX == "male") %>%
-  ggplot(aes(x = CREAT)) +
-  geom_histogram(fill = "#1f78b4", color = "black", alpha = 0.9) +
-  # Rectangulo valores normales
-  annotate("rect", xmin = 0.74, xmax = 1.35 , ymin = -1, ymax = Inf, alpha = 0.45,, fill = "lightgreen", bins = 20) +  # Cambiado el color del rectángulo
-  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = 0, ymax = 0, fill = "Niveles Saludables"), ) +
-  scale_fill_manual(name = " ", values = "lightgreen" )+
+  ggplot(aes(x = CREAT, fill = Estado_hombres)) +  # Asociar 'Estado_hombres' al argumento fill
+  geom_histogram(color = "black", alpha = 1, binwidth = 0.5, size = 0.5) +
+  
+  # Personalización de la leyenda con proporciones
+  scale_fill_manual(
+    name = "Estado",
+    values = c("lightblue", "lightgreen"),
+    labels = c(
+      paste0("No saludable: ", proporcionCREAT_mal_hombres * 100, "%"),
+      paste0("Saludable: ", proporcionCREAT_sano_hombres * 100, "%")
+    )
+  ) +
+  
   # Títulos
   ggtitle("Distribución de CREAT en hombres") +
   labs(x = "Nivel de Creatinina", y = "Frecuencia") +
   theme_classic() +
-    scale_x_continuous(breaks = pretty_breaks(n = 10)) + 
-  coord_flip() + # Gira el gráfico a horizontal
-   # Añadir el recuadro con la proporción
+  theme(
+    plot.title = element_text(size = 21, face = "bold", hjust = 0.5), # Título principal
+    axis.text.x = element_text(size = 10),  # Tamaño del texto del eje X
+    axis.text.y = element_text(size = 14),  # Tamaño del texto del eje Y
+    axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+    axis.title.y = element_text(size = 18),  # Tamaño del título del eje Y
+    legend.text = element_text(size = 15),  # Tamaño del texto de la leyenda
+    legend.title = element_text(size = 18), # Tamaño y estilo del título de la leyenda
+    legend.key.size = unit(0.7, "cm"),  # Tamaño de las claves de la leyenda
+    legend.position = "top"  # Posición de la leyenda
+  ) +
+  scale_x_continuous(breaks = pretty_breaks(n = 10))
 
-   # Añadir el recuadro con la proporción
-    
-  annotate("rect", 
-           xmin = 7, xmax = 8.2, 
-           ymin = 70, ymax = 140, 
-           alpha = 0.2, fill = "grey")+
-  annotate("text", x = 8, y = 140, hjust = 1, vjust = 1, 
-           label = paste0("Rango saludable: ", proporcionCREAT_sano_hombres * 100, "%"),
-           color = "black", size = 3.5, fontface = "bold") + # Ajusta el tamaño y posición si es necesario
-  annotate("text", x = 7.4, y = 140, hjust = 1,vjust = 1, 
-           label = paste0("Rango no saludable: ", proporcionCREAT_mal_hombres * 100, "%"),
-           color = "black", size = 3.5, fontface = "bold")   # Ajusta el tamaño y posición si es necesario
-  
+# Guardar el gráfico como PDF
+ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/grafico_barras_CREAT_MALE.pdf", 
+       plot = grafico_CREAT_MALE, 
+       width = 10, height = 7, device = "pdf")
+
+print(grafico_CREAT_MALE)
+
+```
+```{r}
+proporcionCREAT_sano_mujeres = round(nrow(Arkansas[Arkansas$CREAT_flag == 0 & Arkansas$SEX == "female",]) / numero_mujeres,4)
+proporcionCREAT_mal_mujeres = round(nrow(Arkansas[Arkansas$CREAT_flag == 1 & Arkansas$SEX == "female", ]) / numero_mujeres,4)
+
+Arkansas$Estado_mujeres <- ifelse(Arkansas$CREAT_flag == 0 & Arkansas$SEX == "female", "Saludable", "No saludable")
+
 grafico_CREAT_FEMALE = Arkansas %>%
   filter(SEX == "female") %>%
-  ggplot(aes(x = CREAT)) +
-  geom_histogram(fill = "#1f78b4", color = "black", alpha = 0.9) +
-  # Rectangulo valores normales
-  annotate("rect", xmin = 0.54, xmax = 1.04 , ymin = -1, ymax = Inf, alpha = 0.45,, fill = "lightgreen", bins = 20) +  # Cambiado el color del rectángulo
-  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = 0, ymax = 0, fill = "Niveles Saludables"), ) +
-  scale_fill_manual(name = " ", values = "lightgreen" )+
+  ggplot(aes(x = CREAT, fill = Estado_mujeres)) +  # Asociar 'Estado_mujeres' al argumento fill
+  geom_histogram(color = "black", alpha = 1, binwidth = 0.5, size = 0.5) +
+  
+  # Personalización de la leyenda con proporciones
+  scale_fill_manual(
+    name = "Estado",
+    values = c("lightblue", "lightgreen"),
+    labels = c(
+      paste0("No saludable: ", proporcionCREAT_mal_mujeres * 100, "%"),
+      paste0("Saludable: ", proporcionCREAT_sano_mujeres * 100, "%")
+    )
+  ) +
+  
   # Títulos
   ggtitle("Distribución de CREAT en mujeres") +
   labs(x = "Nivel de Creatinina", y = "Frecuencia") +
   theme_classic() +
-  coord_flip() + # Gira el gráfico a horizontal
-  scale_x_continuous(breaks = pretty_breaks(n = 10)) + 
-   # Añadir el recuadro con la proporción
-  annotate("rect", 
-           xmin = 7, xmax = 8.2, 
-           ymin = 60, ymax = 120, 
-           alpha = 0.2, fill = "grey")+
-  annotate("text", x = 8, y = 120, hjust = 1, vjust = 1, 
-           label = paste0("Rango saludable: ", proporcionCREAT_sano_mujeres * 100, "%"),
-           color = "black", size = 3.5, fontface = "bold") + # Ajusta el tamaño y posición si es necesario
-  annotate("text", x = 7.4, y = 120, hjust = 1,vjust = 1, 
-           label = paste0("Rango no saludable: ", proporcionCREAT_mal_mujeres * 100, "%"),
-           color = "black", size = 3.5, fontface = "bold")   # Ajusta el tamaño y posición si es necesario
-  
-
-
-
-
-# Guardar el gráfico como PDF
-ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/grafico_barras_CREAT_MALE.pdf", 
-       plot = grafico_CREAT_MALE,  # Extraer solo el gráfico principal
-       width = 10, height = 7, device = "pdf")  # Ajusta el tamaño y formato
-
-print(grafico_CREAT_MALE)
+  theme(
+    plot.title = element_text(size = 21, face = "bold", hjust = 0.5), # Título principal
+    axis.text.x = element_text(size = 10),  # Tamaño del texto del eje X
+    axis.text.y = element_text(size = 14),  # Tamaño del texto del eje Y
+    axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+    axis.title.y = element_text(size = 18),  # Tamaño del título del eje Y
+    legend.text = element_text(size = 15),  # Tamaño del texto de la leyenda
+    legend.title = element_text(size = 18), # Tamaño y estilo del título de la leyenda
+    legend.key.size = unit(0.7, "cm"),  # Tamaño de las claves de la leyenda
+    legend.position = "top"  # Posición de la leyenda
+  ) +
+  scale_x_continuous(breaks = pretty_breaks(n = 10))
 
 # Guardar el gráfico como PDF
 ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/grafico_barras_CREAT_FEMALE.pdf", 
-       plot = grafico_CREAT_FEMALE,  # Extraer solo el gráfico principal
-       width = 10, height = 7, device = "pdf")  # Ajusta el tamaño y formato
+       plot = grafico_CREAT_FEMALE, 
+       width = 10, height = 7, device = "pdf")
 
 print(grafico_CREAT_FEMALE)
 
 ```
 
-```{r CRP, echo = FALSE, warning=FALSE}
-
+```{r}
+# Proporciones calculadas
 proporcionCRP_sano = round(nrow(Arkansas[Arkansas$CRP_flag == 0,]) / numero_observaciones,4)
 proporcionCRP_moderado = round(nrow(Arkansas[Arkansas$CRP_flag == 1, ]) / numero_observaciones,4)
 proporcionCRP_alto = round(nrow(Arkansas[Arkansas$CRP_flag == 2, ]) / numero_observaciones,4)
 
+# Crear una variable categórica para la leyenda
+Arkansas$Estado_CRP <- ifelse(
+  Arkansas$CRP_flag == 0, "Saludable",
+  ifelse(Arkansas$CRP_flag == 1, "Moderado", "Alto")
+)
+
+# Colores accesibles para los rangos
+custom_colors <- c("Saludable" = "green", "Moderado" = "yellow", "Alto" = "red")
+
+# Gráfico de CRP
 grafico_CRP <- Arkansas %>%
-  ggplot(aes(x = CRP)) +
-  geom_histogram(fill = "#1f78b4", color = "black", alpha = 0.9) +
+  ggplot(aes(x = CRP, fill = Estado_CRP)) +
+  geom_histogram(color = "black", alpha = 1, binwidth = 6, size = 0.5) +
 
-  # Rectángulos de rango con annotate
-  annotate("rect", xmin = 0.1, xmax = 1, ymin = -1, ymax = Inf, alpha = 0.2, fill = "green") +  
-  annotate("rect", xmin = 1, xmax = 10, ymin = -1, ymax = Inf, alpha = 0.2, fill = "yellow") +  
-  annotate("rect", xmin = 10, xmax = Inf, ymin = -1, ymax = Inf, alpha = 0.2, fill = "red")+
-
-  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = 0, ymax = 0, fill = "Niveles Saludables"), ) +
-    geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = 0, ymax = 0, fill = "Niveles Moderados"), ) +
-    geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = 0, ymax = 0, fill = "Niveles Altos"), ) +
-  scale_fill_manual(name = " ", values = c("red", "yellow", "green") )+
+  # Personalización de la leyenda
+  scale_fill_manual(
+    name = "Estado",
+    values = custom_colors,
+    labels = c(
+      paste0("Alto: ", proporcionCRP_alto * 100, "%"),
+      paste0("Moderado: ", proporcionCRP_moderado * 100, "%"),
+      paste0("Saludable: ", proporcionCRP_sano * 100, "%")
+    )
+  ) +
   
   # Títulos y etiquetas
-  ggtitle("Distribución de CRP (Escala logarítmica)") +
+  ggtitle("Distribución de CRP") +
   labs(x = "Nivel de CRP", y = "Frecuencia") +
   theme_classic() +
-  coord_flip() +  # Gira el gráfico a horizontal
-  scale_x_log10(
-    breaks = trans_breaks("log10", function(x) 10^x, n = 12), # Marcas en una escala logarítmica con números estándar
-    labels = label_number()                                  # Mostrar números estándar en las etiquetas
-  ) +
-  # Recuadro con la proporción
-  annotate("rect", xmin = 15, xmax = 55, ymin = 75, ymax = 133, alpha = 0.5, fill = "white") +
+  theme(
+    plot.title = element_text(size = 21, face = "bold", hjust = 0.5),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size = 18),
+    axis.title.y = element_text(size = 18),
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 17),
+    legend.key.size = unit(0.7, "cm"),
+    legend.position = "top"
+  ) 
+
   
-  annotate("text", x = 50, y = 130, hjust = 1, vjust = 1, 
-           label = paste0("Rango alto: ", proporcionCRP_alto * 100, "%"),
-           color = "black", size = 3.5, fontface = "bold") +
-  annotate("text", x = 33, y = 130, hjust = 1, vjust = 1, 
-           label = paste0("Rango moderado: ", proporcionCRP_moderado * 100, "%"),
-           color = "black", size = 3.5, fontface = "bold") +
-annotate("text", x = 22, y = 130, hjust = 1, vjust = 1, 
-           label = paste0("Rango saludable:   ", proporcionCRP_sano * 100, "%"),
-           color = "black", size = 3.5, fontface = "bold") 
 
 # Guardar el gráfico como PDF
 ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/grafico_barras_CRP.pdf", 
-       plot = grafico_CRP,  # Extraer solo el gráfico principal
-       width = 10, height = 7, device = "pdf")  # Ajusta el tamaño y formato
+       plot = grafico_CRP, 
+       width = 10, height = 7, device = "pdf")
 
+# Imprimir el gráfico
 print(grafico_CRP)
 
 ```
 
-```{r LDH, echo = FALSE, warning=FALSE}
-
+```{r}
+# Proporciones calculadas
 proporcionLDH_sano = round(nrow(Arkansas[Arkansas$LDH_flag == 0,]) / numero_observaciones,4)
 proporcionLDH_mal = round(nrow(Arkansas[Arkansas$LDH_flag == 1, ]) / numero_observaciones,4)
 
+# Crear una variable categórica para la leyenda
+Arkansas$Estado_LDH <- ifelse(Arkansas$LDH_flag == 0, "Saludable", "No saludable")
+
+# Paleta de colores accesible
+custom_colors <- c("Saludable" = "lightgreen", "No saludable" = "lightblue")
+
+# Gráfico de LDH
 grafico_LDH = Arkansas %>%
-  ggplot(aes(x = LDH)) +
-  geom_histogram(fill = "#1f78b4", color = "black", alpha = 0.9) +
-  # Rectangulo valores normales
-  annotate("rect", xmin = 122, xmax = 222, ymin = -1, ymax = Inf, alpha = 0.45,, fill = "lightgreen") +  # Cambiado el color del rectángulo
-  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = 0, ymax = 0, fill = "Niveles Saludables"), ) +
-  scale_fill_manual(name = " ", values = "lightgreen" )+
+  ggplot(aes(x = LDH, fill = Estado_LDH)) +
+  geom_histogram(color = "black", alpha = 1, binwidth = 10, size = 0.5) +
   
-  # Títulos
+  # Personalización de la leyenda
+  scale_fill_manual(
+    name = "Estado",
+    values = custom_colors,
+    labels = c(
+      paste0("No saludable: ", proporcionLDH_mal * 100, "%"),
+      paste0("Saludable: ", proporcionLDH_sano * 100, "%")
+    )
+  ) +
+  
+  # Títulos y etiquetas
   ggtitle("Distribución de LDH") +
   labs(x = "Nivel de LDH", y = "Frecuencia") +
   theme_classic() +
-  scale_x_continuous(breaks = pretty_breaks(n = 10)) + 
-  coord_flip()+  # Gira el gráfico a horizontal
-   # Añadir el recuadro con la proporción
-  annotate("rect", 
-           xmin = 320, xmax = 380, 
-           ymin = 35, ymax = 80, 
-           alpha = 0.3, fill = "grey")+
-  annotate("text", x = 370, y = 77, hjust = 1, vjust = 1, 
-           label = paste0("Rango saludable: ", proporcionLDH_sano * 100, "%"),
-           color = "black", size = 3.5, fontface = "bold") + # Ajusta el tamaño y posición si es necesario
-  annotate("text", x = 345, y = 77, hjust = 1,vjust = 1, 
-            label = paste0("Rango no saludable: ", proporcionLDH_mal * 100, "%"),
-           color = "black", size = 3.5, fontface = "bold")   # Ajusta el tamaño y posición si es necesario
+  theme(
+    plot.title = element_text(size = 21, face = "bold", hjust = 0.5),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size = 18),
+    axis.title.y = element_text(size = 18),
+    legend.text = element_text(size = 15),
+    legend.title = element_text(size = 18),
+    legend.key.size = unit(0.7, "cm"),
+    legend.position = "top"
+  ) 
   
-
 # Guardar el gráfico como PDF
 ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/grafico_barras_LDH.pdf", 
-       plot = grafico_LDH,  # Extraer solo el gráfico principal
-       width = 10, height = 7, device = "pdf")  # Ajusta el tamaño y formato
+       plot = grafico_LDH, 
+       width = 10, height = 7, device = "pdf")
 
+# Imprimir el gráfico
 print(grafico_LDH)
 
 ```
 
-```{r ALB, echo = FALSE, warning=FALSE}
 
+```{r}
+# Proporciones calculadas
 proporcionALB_sano = round(nrow(Arkansas[Arkansas$ALB_flag == 0,]) / numero_observaciones,4)
 proporcionALB_mal = round(nrow(Arkansas[Arkansas$ALB_flag == 1, ]) / numero_observaciones,4)
 
+# Crear una variable categórica para la leyenda
+Arkansas$Estado_ALB <- ifelse(Arkansas$ALB_flag == 0, "Saludable", "No saludable")
+
+# Paleta de colores accesible
+custom_colors <- c("Saludable" = "lightgreen", "No saludable" = "lightblue")
+
+# Gráfico de ALB
 grafico_ALB = Arkansas %>%
-  ggplot(aes(x = ALB)) +
-  geom_histogram(fill = "#1f78b4", color = "black", alpha = 0.9, bins = 20) +
-  # Rectangulo valores normales
-  annotate("rect", xmin = 3.5, xmax = 5, ymin = -1, ymax = Inf, alpha = 0.45,, fill = "lightgreen") +  # Cambiado el color del rectángulo
-  geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = 0, ymax = 0, fill = "Niveles Saludables"), ) +
-  scale_fill_manual(name = " ", values = "lightgreen" )+
+  ggplot(aes(x = ALB, fill = Estado_ALB)) +
+  geom_histogram(color = "black", alpha = 1, binwidth = 0.1, size = 0.5) +
   
-  # Títulos
+  # Personalización de la leyenda
+  scale_fill_manual(
+    name = "Estado",
+    values = custom_colors,
+    labels = c(
+      paste0("No saludable: ", proporcionALB_mal * 100, "%"),
+      paste0("Saludable: ", proporcionALB_sano * 100, "%")
+    )
+  ) +
+  
+  # Títulos y etiquetas
   ggtitle("Distribución de ALB") +
   labs(x = "Nivel de ALB", y = "Frecuencia") +
   theme_classic() +
-  scale_x_continuous(breaks = pretty_breaks(n = 10)) + 
-  coord_flip()+  # Gira el gráfico a horizontal
-   # Añadir el recuadro con la proporción
-  annotate("rect", 
-           xmin = 5.5, xmax = 6.3, 
-           ymin = 30, ymax = 85, 
-           alpha = 0.3, fill = "grey")+
-  annotate("text", x = 6.1, y = 84, hjust = 1, vjust = 1, 
-           label = paste0("Rango saludable: ", proporcionALB_sano * 100, "%"),
-           color = "black", size = 3.5, fontface = "bold") + # Ajusta el tamaño y posición si es necesario
-  annotate("text", x =5.8, y = 84, hjust = 1,vjust = 1, 
-            label = paste0("Rango no saludable: ", proporcionALB_mal * 100, "%"),
-           color = "black", size = 3.5, fontface = "bold")   # Ajusta el tamaño y posición si es necesario
-  
-
+  theme(
+    plot.title = element_text(size = 21, face = "bold", hjust = 0.5),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size = 18),
+    axis.title.y = element_text(size = 18),
+    legend.text = element_text(size = 15),
+    legend.title = element_text(size = 18),
+    legend.key.size = unit(0.7, "cm"),
+    legend.position = "top"
+  ) 
 # Guardar el gráfico como PDF
 ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/grafico_barras_ALB.pdf", 
-       plot = grafico_ALB,  # Extraer solo el gráfico principal
-       width = 10, height = 7, device = "pdf")  # Ajusta el tamaño y formato
+       plot = grafico_ALB, 
+       width = 10, height = 7, device = "pdf")
 
+# Imprimir el gráfico
 print(grafico_ALB)
 
-
 ```
+
+
 
 ```{r HGB, echo=FALSE , warning= FALSE}
 numero_hombres = nrow(Arkansas[Arkansas$SEX == "male", ])
@@ -517,6 +574,98 @@ ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables
 print(grafico_HGB_FEMALE)
 
 ```
+```{r}
+# Proporciones calculadas
+proporcionHGB_sano_hombres = round(nrow(Arkansas[Arkansas$HGB_flag == 0 & Arkansas$SEX == "male",]) / numero_hombres,4)
+proporcionHGB_mal_hombres = round(nrow(Arkansas[Arkansas$HGB_flag == 1 & Arkansas$SEX == "male", ]) / numero_hombres, 4)
+
+# Variable categórica
+Arkansas$Estado_HGB_MALE <- ifelse(Arkansas$HGB_flag == 0 & Arkansas$SEX == "male", "Saludable", "No saludable")
+
+# Paleta accesible
+custom_colors <- c("Saludable" = "lightgreen", "No saludable" = "lightblue")
+
+# Gráfico para hombres
+grafico_HGB_MALE = Arkansas %>%
+  filter(SEX == "male") %>%
+  ggplot(aes(x = HGB, fill = Estado_HGB_MALE)) +
+  geom_histogram(color = "black", alpha = 1, binwidth = 0.5, size = 0.5) +
+  
+  # Personalización de la leyenda
+  scale_fill_manual(
+    name = "Estado",
+    values = custom_colors,
+    labels = c(
+      paste0("No saludable: ", proporcionHGB_mal_hombres * 100, "%"),
+      paste0("Saludable: ", proporcionHGB_sano_hombres * 100, "%")
+    )
+  ) +
+  
+  # Títulos
+  ggtitle("Distribución de HGB en hombres") +
+  labs(x = "Nivel de Hemoglobina", y = "Frecuencia") +
+  scale_x_continuous(breaks = pretty_breaks(n = 10)) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 21, face = "bold", hjust = 0.5),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size = 18),
+    axis.title.y = element_text(size = 18),
+    legend.text = element_text(size = 15),
+    legend.title = element_text(size = 18),
+    legend.key.size = unit(0.7, "cm"),
+    legend.position = "top"
+  ) 
+print(grafico_HGB_MALE)
+
+```
+
+```{r}
+# Proporciones calculadas
+proporcionHGB_sano_mujeres = round(nrow(Arkansas[Arkansas$HGB_flag == 0 & Arkansas$SEX == "female",]) / numero_mujeres,4)
+proporcionHGB_mal_mujeres = round(nrow(Arkansas[Arkansas$HGB_flag == 1 & Arkansas$SEX == "female", ]) / numero_mujeres,4)
+
+# Variable categórica
+Arkansas$Estado_HGB_FEMALE <- ifelse(Arkansas$HGB_flag == 0 & Arkansas$SEX == "female", "Saludable", "No saludable")
+
+# Gráfico para mujeres
+grafico_HGB_FEMALE = Arkansas %>%
+  filter(SEX == "female") %>%
+  ggplot(aes(x = HGB, fill = Estado_HGB_FEMALE)) +
+  geom_histogram(color = "black", alpha = 1, binwidth = 0.5, size = 0.5) +
+  
+  # Personalización de la leyenda
+  scale_fill_manual(
+    name = "Estado",
+    values = custom_colors,
+    labels = c(
+      paste0("No saludable: ", proporcionHGB_mal_mujeres * 100, "%"),
+      paste0("Saludable: ", proporcionHGB_sano_mujeres * 100, "%")
+    )
+  ) +
+  
+  # Títulos
+  ggtitle("Distribución de HGB en mujeres") +
+  labs(x = "Nivel de Hemoglobina", y = "Frecuencia") +
+  scale_x_continuous(breaks = pretty_breaks(n = 10)) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 21, face = "bold", hjust = 0.5),
+    axis.text.x = element_text(size = 10),
+    axis.text.y = element_text(size = 14),
+    axis.title.x = element_text(size = 18),
+    axis.title.y = element_text(size = 18),
+    legend.text = element_text(size = 15),
+    legend.title = element_text(size = 18),
+    legend.key.size = unit(0.7, "cm"),
+    legend.position = "top"
+  )
+
+print(grafico_HGB_FEMALE)
+
+```
+
 
 ```{r AGE, echo = FALSE, warning=FALSE}
 
@@ -525,10 +674,17 @@ grafico_AGE = Arkansas %>%
   geom_histogram(fill = "#1f78b4", color = "black", alpha = 0.9, bins = 20) +
 
   # Títulos
-  ggtitle("Distribución de AGE") +
-  labs(x = "Edad (en años)", y = "Frecuencia") +
+  ggtitle("Distribución de AGE",subtitle = "") +
+  labs(x = "Edad (años)", y = "Frecuencia") +
   scale_x_continuous(breaks = pretty_breaks(n = 10)) + 
   theme_classic() +
+    theme(
+  plot.title = element_text(size = 20, face = "bold", hjust = 0.5), # Título principal
+  axis.text.x = element_text(size = 14),  # Tamaño del texto del eje X
+  axis.text.y = element_text(size = 14),  # Tamaño del texto del eje Y
+  axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+  axis.title.y = element_text(size = 18)  # Tamaño del título del eje Y
+)+
   coord_flip()  # Gira el gráfico a horizontal
    # Añadir el recuadro con la proporción
 
@@ -541,33 +697,33 @@ print(grafico_AGE)
 ```
 
 ```{r}
-library(scales)
 
-grafico_AGE = Arkansas %>%
-  ggplot(aes(x = AGE)) +
-  geom_histogram(aes(y = ..count..), fill = "#1f78b4", color = "black", alpha = 0.9) +
-  
-  # Añadir los valores encima de cada barra
-  geom_text(stat = "bin", aes(label = ..count.., y = ..count.. + 1.5), size = 4, position = position_identity()) +
+grafico_OS_Time = Arkansas %>%
+  ggplot(aes(x = OS_Time)) +
+  geom_histogram(fill = "#1f78b4", color = "black", alpha = 0.9, bins = 20) +
 
   # Títulos
-  ggtitle("Distribución de AGE") +
-  labs(x = "Edad (en años)", y = "Frecuencia") +
+  ggtitle("Distribución de OS_Time",subtitle = "") +
+  labs(x = "Tiempo (meses)", y = "Frecuencia") +
   scale_x_continuous(breaks = pretty_breaks(n = 10)) + 
-  theme_classic() 
-    # Gira el gráfico a horizontal
-
-grafico_AGE
+  theme_classic() +
+    theme(
+  plot.title = element_text(size = 20, face = "bold", hjust = 0.5), # Título principal
+  axis.text.x = element_text(size = 14),  # Tamaño del texto del eje X
+  axis.text.y = element_text(size = 14),  # Tamaño del texto del eje Y
+  axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+  axis.title.y = element_text(size = 18)  # Tamaño del título del eje Y
+)+
+  coord_flip()  # Gira el gráfico a horizontal
+   # Añadir el recuadro con la proporción
+grafico_OS_Time
 ```
 
-```{r}
-ggplot(Arkansas, aes(x = AGE)) +
-  geom_histogram(binwidth = 5, fill = "#56B4E9", color = "black") +
-  labs(title = "Distribución de la Edad", x = "Edad (en meses)", y = "Frecuencia") +
-  theme_minimal()+
-  geom_segment(aes(x = quantile(Arkansas$AGE, 0.25), y = -1, yend = 115 , xend = quantile(Arkansas$AGE, 0.25)), linetype = 2, linewidth = 0.8) +
-  annotate(geom = "text", x = quantile(Arkansas$AGE, 0.25), y = 120, label = "Q1") 
-```
+
+
+
+
+
 
 #### Variables categoricas
 
@@ -588,7 +744,25 @@ ggplot(na.omit(Arkansas), aes(x = ISOTYPE)) +
     axis.text = element_text(size = 12),
     axis.title = element_text(size = 14)
   )
+```
 
+```{r}
+# Crear el gráfico de barras
+ggplot(na.omit(Arkansas), aes(x = SEX)) +
+  geom_bar(fill = "#56B4E9", color = "black") +
+  
+  # Añadir las frecuencias sobre cada barra
+  geom_text(stat = "count", aes(label = ..count..), vjust = -0.5, size = 5) +
+  
+  # Mejorar la estética del gráfico
+  labs(title = "Distribución de SEX", x = "Sexo", y = "Frecuencia") +
+  ylim(0, max(table(Arkansas$ISOTYPE)) * 1.1) +  # Aumenta el límite del eje y un 10%
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14)
+  )
 ```
 
 ```{r}
@@ -648,6 +822,23 @@ ggcorrplot(matriz_correlacion,
         axis.title.y = element_text(size = 14))   # Tamaño del título del eje y
 
 ```
+```{r}
+library("factoextra")
+Arkansas_ACP <- prcomp(variables_interes, scale = TRUE )
+Arkansas_ACP
+lambdas = get_eigenvalue(Arkansas_ACP)
+lambdas
+fviz_eig(Arkansas_ACP, addlabels = TRUE,ylim=c(0,100))
+
+fviz_pca_var(Arkansas_ACP, col.var = "contrib", repel = TRUE)
+
+var = get_pca_var(Arkansas_ACP)
+fviz_cos2(Arkansas_ACP, choice = "var", axes = 1:3)
+Arkansas_ACP$rotation
+
+fviz_pca_biplot(Arkansas_ACP, repel = TRUE)
+```
+
 
 # MODELO DE COX [SIN DATOS FALTANTES]{.underline}
 
@@ -965,9 +1156,6 @@ modelo_weibull_backward <- step(modelo_weibull, direction = "backward")
 ## Residuos Cox-Snell
 
 ```{r}
-library(survival)
-library(ggplot2)
-library(gridExtra)
 
 # Calcular los residuos de Cox-Snell para los tres modelos
 residuos_cox_snell_modelo_no_parametrico <- modelo_backward$linear.predictors
@@ -977,23 +1165,23 @@ residuos_cox_snell_modelo_weibull <- modelo_weibull_backward$linear.predictors
 # Crear un nuevo conjunto de datos que contenga los residuos de Cox-Snell y la información de censura para cada modelo
 datos_cox_snell_no_parametrico <- data.frame(
   residuos_cox_snell = residuos_cox_snell_modelo_no_parametrico,
-  EFS_Censor = Arkansas_SinDatosFaltantes$EFS_Censor
+  OS_Censor = Arkansas_SinDatosFaltantes$OS_Censor
 )
 
 datos_cox_snell_exp <- data.frame(
   residuos_cox_snell = residuos_cox_snell_modelo_exp,
-  EFS_Censor = Arkansas_SinDatosFaltantes$EFS_Censor
+  OS_Censor = Arkansas_SinDatosFaltantes$OS_Censor
 )
 
 datos_cox_snell_weibull <- data.frame(
   residuos_cox_snell = residuos_cox_snell_modelo_weibull,
-  EFS_Censor = Arkansas_SinDatosFaltantes$EFS_Censor
+  OS_Censor = Arkansas_SinDatosFaltantes$OS_Censor
 )
 
 # Ajustar modelos de Kaplan-Meier a los residuos de Cox-Snell
-modelo_kaplan_meier_no_parametrico <- survfit(Surv(residuos_cox_snell, EFS_Censor) ~ 1, data = datos_cox_snell_no_parametrico)
-modelo_kaplan_meier_exp <- survfit(Surv(residuos_cox_snell, EFS_Censor) ~ 1, data = datos_cox_snell_exp)
-modelo_kaplan_meier_weibull <- survfit(Surv(residuos_cox_snell, EFS_Censor) ~ 1, data = datos_cox_snell_weibull)
+modelo_kaplan_meier_no_parametrico <- survfit(Surv(residuos_cox_snell, OS_Censor) ~ 1, data = datos_cox_snell_no_parametrico)
+modelo_kaplan_meier_exp <- survfit(Surv(residuos_cox_snell, OS_Censor) ~ 1, data = datos_cox_snell_exp)
+modelo_kaplan_meier_weibull <- survfit(Surv(residuos_cox_snell, OS_Censor) ~ 1, data = datos_cox_snell_weibull)
 
 # Graficar la función de supervivencia acumulada para cada modelo
 grafico_no_parametrico <- ggplot() +
@@ -1032,13 +1220,11 @@ grafico_weibull <- ggplot() +
 # Colocar los tres gráficos uno al lado del otro
 grid.arrange(grafico_no_parametrico, grafico_exp, grafico_weibull, ncol = 3)
 
-
 # Gráfico Q-Q para residuos de deviance
-qqnorm(residuos_deviance_modelo_no_parametrico)
-qqline(residuos_deviance_modelo_no_parametrico, col = "red")
+qqplot(qexp(ppoints(nrow(Arkansas_SinDatosFaltantes)),1),residuos_cox_snell_modelo_no_parametrico)
+qqline(residuos_cox_snell_modelo_no_parametrico, col = "red")
+
 ```
-
-
 
 ## Residuos de Martingale
 
@@ -1050,7 +1236,7 @@ hist(residuos_martingale,
      col = "#1f78b4", 
      border = "white")
 
-variables_backward = c("AGE", "B2M", "LDH","ALB", "MRI", "Cyto_Abn", "ISOTYPEFLC")
+variables_backward = c("AGE", "B2M", "LDH","ALB", "MRI")
 for (variable in variables_backward) {
   plot <- ggplot(data = Arkansas_SinDatosFaltantes, aes_string(x = variable, y = "residuos_martingale")) +
     geom_point(color = "#1f78b4", alpha = 0.6) +
@@ -1065,14 +1251,13 @@ for (variable in variables_backward) {
 }
 ```
 
-Histograma --> Para detectar posibles anomalias. Ya que los residuos de martingale van de -infinito a 1.
+Histograma --\> Para detectar posibles anomalias. Ya que los residuos de martingale van de -infinito a 1.
 
-Gráficos --> La curva roja es un suavizado que representa la tendencia de los residuos frente a los valores de la variable. La banda gris es el intervalo de confianza. Si la curva se desvía significativamente de la línea horizontal (en 0), puede indicar que la relación entre B2M y el riesgo no es lineal, lo cual podría violar los supuestos del modelo de Cox.
+Gráficos --\> La curva roja es un suavizado que representa la tendencia de los residuos frente a los valores de la variable. La banda gris es el intervalo de confianza. Si la curva se desvía significativamente de la línea horizontal (en 0), puede indicar que la relación entre B2M y el riesgo no es lineal, lo cual podría violar los supuestos del modelo de Cox.
 
 La curva roja parece desviarse de la línea horizontal en valores altos de B2M, lo que sugiere que la relación entre B2M y el riesgo podría no ser lineal. Lo mismo para MRI.
 
 R nos devuelve una alerta indicando: Valores muy alejados del resto de los datos (outliers) pueden causar problemas en el cálculo, por lo que la desviación de la recta 0 puede deberse a esto.
-
 
 ## Deviance
 
@@ -1140,12 +1325,12 @@ plot_modelo_weibull<- ggplot(data = Arkansas_SinDatosFaltantes, aes_string(x = v
   ) +
   theme_minimal()
 
-
-
 grid.arrange(plot_modelo_no_parametrico, plot_modelo_exp, plot_modelo_weibull, ncol = 3)
 }
+# Gráfico Q-Q para residuos de deviance
+qqnorm(residuos_deviance_modelo_no_parametrico)
+qqline(residuos_deviance_modelo_no_parametrico, col = "red")
 ```
-
 
 ## Residuos Schoenfeld
 
@@ -1153,6 +1338,7 @@ grid.arrange(plot_modelo_no_parametrico, plot_modelo_exp, plot_modelo_weibull, n
 residuos_schoenfeld_no_parametrico <- cox.zph(modelo_backward)
 residuos_schoenfeld_no_parametrico
 ```
+
 Todos los valores p son mayores que 0.05, lo que indica que no hay evidencia suficiente para rechazar el supuesto de riesgos proporcionales para ninguna de las covariables.
 
 ## AIC
@@ -1198,7 +1384,7 @@ tabla_aic
 library(survival)
 
 # Crear el objeto de supervivencia
-surv_obj <- Surv(Arkansas_SinDatosFaltantes$EFS_Time, Arkansas_SinDatosFaltantes$EFS_Censor)
+surv_obj <- Surv(Arkansas_SinDatosFaltantes$OS_Time, Arkansas_SinDatosFaltantes$OS_Censor)
 
 # Calcular el C-Index para el modelo de Cox
 concordance_cox <- concordance(modelo_backward, newdata = Arkansas_SinDatosFaltantes)
@@ -1241,56 +1427,168 @@ tabla_c_index
 
 ```
 
-```{r}
-# Instalar las librerías necesarias si no están instaladas
-if (!require("timeROC")) install.packages("timeROC", dependencies = TRUE)
-if (!require("survival")) install.packages("survival", dependencies = TRUE)
 
+```{r}
 # Cargar las librerías
 library(timeROC)
 library(survival)
 library(RColorBrewer)
+pred_backward <- predict(modelo_backward, type = "lp")
+pred_exp <-  -predict(modelo_exp_backward, type = "lp")
+pred_weibull <- -predict(modelo_weibull_backward, type = "lp")
 
-# Escala de colores: del azul claro (tiempo más pequeño) al azul oscuro (tiempo más grande)
-color_scale <- colorRampPalette(brewer.pal(9, "Blues"))(length(roc_backward$times))
+#tiempos = c(5,10,20,30,40,50,60,70,80,90,100)
+tiempos = c(5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100)
+# Crear el objeto timeROC para el modelo backward
+roc_backward <- timeROC(
+  T = Arkansas_SinDatosFaltantes$OS_Time, 
+  delta = Arkansas_SinDatosFaltantes$OS_Censor, 
+  marker = pred_backward, 
+  cause = 1, 
+  weighting = "marginal", 
+  times = tiempos
+)
+# Crear el objeto timeROC para el modelo backward
+roc_exp <- timeROC(
+  T = Arkansas_SinDatosFaltantes$OS_Time, 
+  delta = Arkansas_SinDatosFaltantes$OS_Censor, 
+  marker = pred_exp, 
+  cause = 1, 
+  weighting = "marginal", 
+  times = tiempos
+)
+# Crear el objeto timeROC para el modelo backward
+roc_weibull<- timeROC(
+  T = Arkansas_SinDatosFaltantes$OS_Time, 
+  delta = Arkansas_SinDatosFaltantes$OS_Censor, 
+  marker = pred_weibull, 
+  cause = 1, 
+  weighting = "marginal", 
+  times = tiempos
+)
 
+```
 
-# Supongamos que tus datos tienen las siguientes columnas:
-# OS_Time: Tiempo de seguimiento para análisis de supervivencia
-# OS_Censor: Variable censura (1 = evento, 0 = censurado)
-# Predicciones de los modelos: pred_backward, pred_exp_backward, pred_weibull_backward
+```{r}
+# Extraer las AUC de los objetos timeROC
+roc_backward_auc <- roc_backward$AUC  # AUC para cada tiempo del modelo backward
+roc_exp_auc <- roc_exp$AUC            # AUC para el modelo exponencial
+roc_weibull_auc <- roc_weibull$AUC    # AUC para el modelo Weibull
 
+# Crear el marco de datos con las AUC
+data <- data.frame(
+  x = rep(roc_backward$times, 3),  # Los tiempos son iguales para todas las curvas
+  y = c(roc_backward_auc, roc_exp_auc, roc_weibull_auc),  # Combina las AUC de las curvas
+  curva = rep(c("Modelo Backward", "Modelo Exponencial", "Modelo Weibull"), 
+              each = length(roc_backward$times))  # Identificar cada curva
+)
 
-# Generar predicciones del riesgo lineal para cada modelo
-# Graficar la curva ROC para el modelo backward
-plot(roc_backward, 
-     time = 10,        # Tiempo en el cual evaluar la AUC
-     col = "blue", 
-     lwd = 2, 
-     title = "AUC Comparación de Modelos")
+# Cargar la librería ggplot2
+if (!require("ggplot2")) install.packages("ggplot2")
+library(ggplot2)
 
-# Agregar las demás curvas ROC al gráfico
-for (i in 2:length(roc_backward$times)) {
-  plot(roc_backward, 
-       time = roc_backward$times[i], 
-       col = color_scale[i], 
-       lwd = 2, 
-       add = TRUE)  # Superponer las curvas
-}
+grafico_comparacion_auc <- ggplot(data, aes(x = x, y = y, color = curva)) +
+  geom_line(size = 1.2) +      
+  geom_point(size = 3) +
+  labs(title = "Comparación de AUC entre Modelos", 
+       x = "Tiempo", 
+       y = "AUC", 
+       color = "Modelos") +     
+  scale_color_manual(values = c("Modelo Backward" = "#1f77b4", 
+                                "Modelo Exponencial" = "#ff7f0e", 
+                                "Modelo Weibull" = "#2ca02c")) + # Colores personalizados
+  theme_minimal()
 
-# Añadir una barra de leyenda que indique la escala de tiempos
-legend("bottomright", 
-       legend = paste("Tiempo =", roc_backward$times), 
-       col = color_scale, 
-       lwd = 2, 
-       cex = 0.8,  # Ajustar tamaño de texto si es necesario
-       title = "Leyenda de tiempos")
+grafico_comparacion_auc
+grafico_comparacion_auc + ylim(0,1)
 
+```
+
+```{r}
+
+grafico_OS_Time = Arkansas %>%
+  ggplot(aes(x = OS_Time)) +
+  geom_histogram(fill = "#1f78b4", color = "black", alpha = 0.9, bins = 20) +
+
+  # Títulos
+  ggtitle("Distribución de OS_Time",subtitle = "") +
+  labs(x = "Tiempo (meses)", y = "Frecuencia") +
+  scale_x_continuous(breaks = pretty_breaks(n = 10)) + 
+  theme_classic() +
+    theme(
+  plot.title = element_text(size = 20, face = "bold", hjust = 0.5), # Título principal
+  axis.text.x = element_text(size = 14),  # Tamaño del texto del eje X
+  axis.text.y = element_text(size = 14),  # Tamaño del texto del eje Y
+  axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+  axis.title.y = element_text(size = 18)  # Tamaño del título del eje Y
+)
+   # Añadir el recuadro con la proporción
+
+grid.arrange(grafico_comparacion_auc, grafico_OS_Time)
 
 ```
 
 
 
+PARA EL MODELO FINAL
+```{r}
+# Instalar las librerías necesarias si no están instaladas
+if (!require("timeROC")) install.packages("timeROC", dependencies = TRUE)
+if (!require("survival")) install.packages("survival", dependencies = TRUE)
+if (!require("RColorBrewer")) install.packages("RColorBrewer", dependencies = TRUE)
+
+
+
+# Supongamos que tu conjunto de datos se llama 'Arkansas_SinDatosFaltantes'
+# y tiene las siguientes columnas:
+# OS_Time: Tiempo de seguimiento para análisis de supervivencia
+# OS_Censor: Variable de censura (1 = evento, 0 = censurado)
+
+# Ajustar el modelo de Cox
+
+# Generar predicciones del riesgo lineal (linear predictor) para el modelo
+pred_backward <- predict(modelo_backward, type = "lp")
+
+# Crear el objeto timeROC para el modelo backward
+roc_backward <- timeROC(
+  T = Arkansas_SinDatosFaltantes$OS_Time, 
+  delta = Arkansas_SinDatosFaltantes$OS_Censor, 
+  marker = pred_backward, 
+  cause = 1, 
+  weighting = "marginal", 
+  times = seq(5, 100, by = 15) # Cambia los tiempos según tu análisis
+)
+
+# Crear una escala de colores para los tiempos (azul claro a azul oscuro)
+color_scale <- colorRampPalette(brewer.pal(9, "Blues"))(length(roc_backward$times))
+
+# Graficar la curva ROC para el modelo backward
+plot(roc_backward, 
+     time = roc_backward$times[1], # Primer tiempo
+     col = color_scale[1], 
+     lwd = 2, 
+     title = "Curvas ROC en diferentes tiempos (Modelo Backward)")
+
+# Superponer las demás curvas ROC al gráfico
+for (i in 2:length(roc_backward$times)) {
+  plot(roc_backward, 
+       time = roc_backward$times[i], 
+       col = color_scale[i], 
+       lwd = 2, 
+       add = TRUE) # Superponer las curvas
+}
+
+# Añadir una leyenda para identificar los tiempos
+legend("bottomright", 
+       legend = paste("Tiempo =", roc_backward$times), 
+       col = color_scale, 
+       lwd = 2, 
+       cex = 0.8, # Ajustar tamaño de texto si es necesario
+       title = "Leyenda de tiempos")
+
+
+
+```
 
 # OTROS
 
@@ -1325,3 +1623,34 @@ d_b %>% ggpairs(aes(color = SEX ,alpha = 0.7),
         upper = list(continuous = wrap("cor", size = 2.5)))
 names(Arkansas)
 ```
+
+```{r}
+
+grafico_AGE = Arkansas %>%
+  ggplot(aes(x = AGE)) +
+  geom_histogram(aes(y = ..count..), fill = "#1f78b4", color = "black", alpha = 0.9) +
+  
+  # Añadir los valores encima de cada barra
+  geom_text(stat = "bin", aes(label = ..count.., y = ..count.. + 1.5), size = 4, position = position_identity()) +
+
+  # Títulos
+  ggtitle("Distribución de AGE") +
+  labs(x = "Edad (en años)", y = "Frecuencia") +
+  scale_x_continuous(breaks = pretty_breaks(n = 10)) + 
+  theme_classic() 
+    # Gira el gráfico a horizontal
+
+grafico_AGE
+```
+
+```{r}
+ggplot(Arkansas, aes(x = AGE)) +
+  geom_histogram(binwidth = 5, fill = "#56B4E9", color = "black") +
+  labs(title = "Distribución de la Edad", x = "Edad (en meses)", y = "Frecuencia") +
+  theme_minimal()+
+  geom_segment(aes(x = quantile(Arkansas$AGE, 0.25), y = -1, yend = 115 , xend = quantile(Arkansas$AGE, 0.25)), linetype = 2, linewidth = 0.8) +
+  annotate(geom = "text", x = quantile(Arkansas$AGE, 0.25), y = 120, label = "Q1") 
+```
+
+
+
