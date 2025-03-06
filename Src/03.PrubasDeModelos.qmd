@@ -24,6 +24,8 @@ library(scales)
 library(viridis)
 library(timeROC)
 library(RColorBrewer)
+library(grid)
+library(survAUC) # Para calcular el GH-Index
 ```
 
 # Datos
@@ -101,9 +103,6 @@ tabla_visualizacion_variables <- visualizacion_variables %>%
     heading.title.font.size = px(18),
   )
 tabla_visualizacion_variables
-
-
-
 ```
 
 Algunos de los pacientes presentan censura, es decir, en su último control, este, no había fallecido. Además, algunas de las observaciones tienen datos faltantes, veamos cuales son estas variables y cuantos datos faltan para cada una y contabilicemos el nivel de censura que presentan los datos.
@@ -582,7 +581,6 @@ grafico_AGE
 ```
 
 #### Variables categoricas
-
 ```{r}
 # Crear el gráfico de barras
 grafico_barras_ISOTYPE <- ggplot(na.omit(Arkansas_SDF), aes(x = ISOTYPE)) +
@@ -680,7 +678,6 @@ grafico_correlaciones <- ggcorrplot(matriz_correlacion,
 
 grafico_correlaciones
 ```
-
 ```{r}
 # Guardar el gráfico como PDF
 # B2M
@@ -837,14 +834,10 @@ univ_models <- lapply( univ_formulas, function(x){coxph(x, data = Arkansas_SDF)}
 univ_results <- lapply(univ_models,
                        function(x){ 
                           x <- summary(x)
-                          p.value<-signif(x$wald["pvalue"], digits=2)
-                          wald.test<-signif(x$wald["test"], digits=2)
-                          beta<-signif(x$coef[1], digits=2);#coeficient beta
-                          HR <-signif(x$coef[2], digits=2);#exp(beta)
-                          HR.confint.lower <- signif(x$conf.int[,"lower .95"], 2)
-                          HR.confint.upper <- signif(x$conf.int[,"upper .95"],2)
-                          HR <- paste0(HR, " (", 
-                                       HR.confint.lower, "-", HR.confint.upper, ")")
+                          p.value<-signif(x$wald["pvalue"], digits=4)
+                          wald.test<-signif(x$wald["test"], digits=4)
+                          beta<-signif(x$coef[1], digits=4);#coeficient beta
+                          HR <-signif(x$coef[2], digits=4);#exp(beta)
                           res<-c(beta, HR, wald.test, p.value)
                           names(res)<-c("beta", "HR (95% CI for HR)", "wald.test", 
                                         "p.value")
@@ -879,11 +872,11 @@ modelo_inicial_summary <- summary(modelo_inicial)
 
 # Crear un dataframe con los coeficientes y otras estadísticas de interés
 tabla_cox <- data.frame(
-  coef = round(modelo_inicial_summary$coefficients[, "coef"], 5),
-  exp_coef = round(modelo_inicial_summary$coefficients[, "exp(coef)"], 5),
-  se_coef = round(modelo_inicial_summary$coefficients[, "se(coef)"], 5),
+  coef = round(modelo_inicial_summary$coefficients[, "coef"], 4),
+  exp_coef = round(modelo_inicial_summary$coefficients[, "exp(coef)"], 4),
+  se_coef = round(modelo_inicial_summary$coefficients[, "se(coef)"], 4),
   z = round(modelo_inicial_summary$coefficients[, "z"], 3),
-  p_value = modelo_inicial_summary$coefficients[, "Pr(>|z|)"]
+  p_value = round(modelo_inicial_summary$coefficients[, "Pr(>|z|)"],4)
 )
 
 # Cambiar los nombres de las columnas para que sean más comprensibles
@@ -926,7 +919,6 @@ tabla_backward <- data.frame(
 # Renombrar las columnas para mayor claridad
 colnames(tabla_backward) <- c("Coeficiente", "Exp(Coef)", "Error Estándar", "Z-valor", "P-valor")
 
-
 # Extraer la trayectoria de selección de variables
 historial <- modelo_backward$anova
 
@@ -954,6 +946,16 @@ print(tabla_backward)
 ```{r}
 modelo_backward <- update(modelo_backward, . ~ . - ISOTYPEFLC) # Eliminamos la variable del modelo
 print(modelo_backward)
+# Resumir el modelo final ajustado
+modelo_backward_summary <- summary(modelo_backward)
+# Crear un dataframe con los coeficientes y estadísticas del modelo ajustado
+tabla_backward <- data.frame(
+  coef = formatC(modelo_backward_summary$coefficients[, "coef"], 5),
+  exp_coef = formatC(modelo_backward_summary$coefficients[, "exp(coef)"], format = "g", digits = 5),
+  se_coef = formatC(modelo_backward_summary$coefficients[, "se(coef)"], format = "g", digits = 5),
+  z = formatC(modelo_backward_summary$coefficients[, "z"], format = "g", digits = 5),
+  p_value = formatC(modelo_backward_summary$coefficients[, "Pr(>|z|)"], format = "g", digits = 2  )
+)
 
 # Generar y guardar la tabla en formato LaTeX
 tabla_latex <- xtable(tabla_backward, caption = "Resultados del modelo final después de selección hacia atrás")
@@ -979,78 +981,134 @@ ggsurvplot(curva_supervivencia, data = Arkansas_SDF,
 # Gráficos Kaplan-Meier
 
 ```{r}
+colores_surv =  c("#0072B2", "#D95F02", "#F0E442", "#999999")
+
 # Crear los gráficos de supervivencia
 grafico_surv_age <- ggsurvplot(
   survfit(Surv(OS_Time, OS_Censor) ~ AGE_flag, data = Arkansas_SDF), 
   data = Arkansas_SDF, 
   pval = TRUE,
-  palette = c("#0072B2", "#D95F02", "#F0E442", "#999999"),  # Define la paleta de colores
-  legend.labs = c("Jóvenes (<50)", "Adultos (>50)"),  # Texto de la leyenda
+  palette = colores_surv,  # Define la paleta de colores
+  legend.labs = c("Menores de 50", "Mayores de 50"),  # Texto de la leyenda
   xlab = "Tiempo (meses)",  # Cambiar texto del eje X
   ylab = "Probabilidad de supervivencia (%)",# Cambiar texto del eje Y
   title = "Edad"
 )
-grafico_surv_age <- grafico_surv_age$plot + theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"))
+grafico_surv_age <- grafico_surv_age$plot + 
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+  axis.text.x = element_text(size = 18),  # Tamaño del texto del eje X
+  axis.text.y = element_text(size = 18),  # Tamaño del texto del eje Y
+  axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+  axis.title.y = element_text(size = 18),  # Tamaño del título del eje Y
+  legend.text = element_text(size = 20),
+  legend.title = element_text(size = 16)
+)+ 
+  guides(color = guide_legend(override.aes = list(linetype = 0, shape = 15, size = 5)))
 
 grafico_surv_B2M <- ggsurvplot(
   survfit(Surv(OS_Time, OS_Censor) ~ B2M_flag, data = Arkansas_SDF), 
   data = Arkansas_SDF, 
   pval = TRUE,
-  palette = c("#0072B2", "#D95F02", "#F0E442", "#999999"),  # Define la paleta de colores
+  palette = colores_surv,  # Define la paleta de colores
   legend.labs = c("Niveles nomales", "Niveles alterados"),  # Texto de la leyenda
   xlab = "Tiempo (meses)",  # Cambiar texto del eje X
   ylab = "Probabilidad de supervivencia (%)",  # Cambiar texto del eje Y
   title = "B2M"
   )
-grafico_surv_B2M <- grafico_surv_B2M$plot + theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold")) 
+grafico_surv_B2M <- grafico_surv_B2M$plot +
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+  axis.text.x = element_text(size = 18),  # Tamaño del texto del eje X
+  axis.text.y = element_text(size = 18),  # Tamaño del texto del eje Y
+  axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+  axis.title.y = element_text(size = 18),  # Tamaño del título del eje Y
+  legend.text = element_text(size = 20),
+  legend.title = element_text(size = 16)
+  )+ 
+  guides(color = guide_legend(override.aes = list(linetype = 0, shape = 15, size = 5)))
 
 grafico_surv_ALB <- ggsurvplot(
   survfit(Surv(OS_Time, OS_Censor) ~ ALB_flag, data = Arkansas_SDF), 
   data = Arkansas_SDF, 
   pval = TRUE,
-  palette = c("#0072B2", "#D95F02", "#F0E442", "#999999"),  # Define la paleta de colores
+  palette = colores_surv,  # Define la paleta de colores
   legend.labs = c("Niveles nomales", "Niveles alterados"),  # Texto de la leyenda
   xlab = "Tiempo (meses)",  # Cambiar texto del eje X
   ylab = "Probabilidad de supervivencia (%)",  # Cambiar texto del eje Y
   title = "ALB"
 )
-grafico_surv_ALB <- grafico_surv_ALB$plot + theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold")) 
+grafico_surv_ALB <- grafico_surv_ALB$plot +  
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+  axis.text.x = element_text(size = 18),  # Tamaño del texto del eje X
+  axis.text.y = element_text(size = 18),  # Tamaño del texto del eje Y
+  axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+  axis.title.y = element_text(size = 18),  # Tamaño del título del eje Y
+  legend.text = element_text(size = 20),
+  legend.title = element_text(size = 16)
+)+ 
+  guides(color = guide_legend(override.aes = list(linetype = 0, shape = 15, size = 5)))
 
 grafico_surv_LDH <- ggsurvplot(
   survfit(Surv(OS_Time, OS_Censor) ~ LDH_flag, data = Arkansas_SDF), 
   data = Arkansas_SDF, 
   pval = TRUE,
-  palette = c("#0072B2", "#D95F02", "#F0E442", "#999999"),  # Define la paleta de colores
+  palette = colores_surv,  # Define la paleta de colores
   legend.labs = c("Niveles nomales", "Niveles alterados"),  # Texto de la leyenda
   xlab = "Tiempo (meses)",  # Cambiar texto del eje X
   ylab = "Probabilidad de supervivencia (%)",  # Cambiar texto del eje Y
   title = "LDH"
   )
-grafico_surv_LDH <- grafico_surv_LDH$plot + theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold")) 
+grafico_surv_LDH <- grafico_surv_LDH$plot +  
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+  axis.text.x = element_text(size = 18),  # Tamaño del texto del eje X
+  axis.text.y = element_text(size = 18),  # Tamaño del texto del eje Y
+  axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+  axis.title.y = element_text(size = 18),  # Tamaño del título del eje Y
+  legend.text = element_text(size = 20),
+  legend.title = element_text(size = 16)
+)+ 
+  guides(color = guide_legend(override.aes = list(linetype = 0, shape = 15, size = 5)))
 
 grafico_surv_MRI <- ggsurvplot(
   survfit(Surv(OS_Time, OS_Censor) ~ MRI_flag, data = Arkansas_SDF), 
   data = Arkansas_SDF, 
   pval = TRUE,
-  palette = c("#0072B2", "#D95F02", "#F0E442", "#999999"),  # Define la paleta de colores
+  palette = colores_surv,  # Define la paleta de colores
   legend.labs = c("Niveles bajos", "Niveles medios", "Niveles altos","Niveles muy altos"),  # Texto de la leyenda
   xlab = "Tiempo (meses)",  # Cambiar texto del eje X
   ylab = "Probabilidad de supervivencia (%)",  # Cambiar texto del eje Y
   title = "MRI"
   )
-grafico_surv_MRI <- grafico_surv_MRI$plot + theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold")) 
+grafico_surv_MRI <- grafico_surv_MRI$plot + 
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+  axis.text.x = element_text(size = 18),  # Tamaño del texto del eje X
+  axis.text.y = element_text(size = 18),  # Tamaño del texto del eje Y
+  axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+  axis.title.y = element_text(size = 18),  # Tamaño del título del eje Y
+  legend.text = element_text(size = 20),
+  legend.title = element_text(size = 16)
+)+ 
+  guides(color = guide_legend(override.aes = list(linetype = 0, shape = 15, size = 5)))
 
 grafico_surv_CYTO <- ggsurvplot(
   survfit(Surv(OS_Time, OS_Censor) ~ Cyto_Abn, data = Arkansas_SDF), 
   data = Arkansas_SDF, 
   pval = TRUE,
-  palette = c("#0072B2", "#D95F02", "#F0E442", "#999999"),  # Define la paleta de colores
+  palette = colores_surv,  # Define la paleta de colores
   legend.labs = c("Sin alteraciones", "Con alteraciones"),  # Texto de la leyenda
   xlab = "Tiempo (meses)",  # Cambiar texto del eje X
   ylab = "Probabilidad de supervivencia (%)",  # Cambiar texto del eje Y
   title = "Cyto_Abn"
   )
-grafico_surv_CYTO <- grafico_surv_CYTO$plot + theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"))
+grafico_surv_CYTO <- grafico_surv_CYTO$plot +  
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+  axis.text.x = element_text(size = 18),  # Tamaño del texto del eje X
+  axis.text.y = element_text(size = 18),  # Tamaño del texto del eje Y
+  axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+  axis.title.y = element_text(size = 18),  # Tamaño del título del eje Y
+  legend.text = element_text(size = 20),
+  legend.title = element_text(size = 16)
+)+ 
+  guides(color = guide_legend(override.aes = list(linetype = 0, shape = 15, size = 5)))
 
 print(grafico_surv_age)
 print(grafico_surv_B2M)
@@ -1059,57 +1117,12 @@ print(grafico_surv_MRI)
 print(grafico_surv_LDH)
 print(grafico_surv_CYTO)
 ```
-### Comprobación de los protocolos estándares
 
-```{r}
-Arkansas_SDF <- Arkansas_SDF %>%
-  mutate(
-    ISS = case_when(
-      B2M < 3.5 & ALB >= 3.5 ~ "ISS I",
-      B2M >= 5.5 ~ "ISS III",
-      TRUE ~ "ISS II"
-    )
-  )
-
-Arkansas_SDF <- Arkansas_SDF %>%
-  mutate(
-    R_ISS = case_when(
-      ISS == "ISS I" & Cyto_Abn == 0 & LDH_flag == 0 ~ "R-ISS I",
-      ISS == "ISS III" | Cyto_Abn == 1 | LDH == 1 ~ "R-ISS III",
-      TRUE ~ "R-ISS II"
-    )
-  )
-```
-
-```{r}
-ggsurvplot(
-  survfit(Surv(OS_Time, OS_Censor) ~ ISS, data = Arkansas_SDF), 
-  data = Arkansas_SDF, 
-  pval = TRUE,
-  palette = c("#0072B2", "#D95F02", "#F0E442", "#999999"),  # Define la paleta de colores
-  legend.labs = c("Estadio 1", "Estadio 2", "Estadio 3"),  # Texto de la leyenda
-  xlab = "Tiempo (meses)",  # Cambiar texto del eje X
-  ylab = "Probabilidad de supervivencia (%)",  # Cambiar texto del eje Y
-  title = "ISS"
-  )
-```
-
-```{r}
-ggsurvplot(
-  survfit(Surv(OS_Time, OS_Censor) ~ R_ISS, data = Arkansas_SDF), 
-  data = Arkansas_SDF, 
-  pval = TRUE,
-  palette = c("#0072B2", "#D95F02", "#F0E442", "#999999"),  # Define la paleta de colores
-  legend.labs = c("Estadio 1", "Estadio 2", "Estadio 3"),  # Texto de la leyenda
-  xlab = "Tiempo (meses)",  # Cambiar texto del eje X
-  ylab = "Probabilidad de supervivencia (%)",  # Cambiar texto del eje Y
-  title = "R-ISS"
-  )
-```
 Comprobemos si el supuesto de que los datos siguen una distribución exponencial o Weibull es factible.
 ```{r}
+verificar <- function(data, survivalTimes, survivalTimesCensor){
 # Estimación de la función de supervivencia de Kaplan-Meier
-km_fit <- survfit(Surv(OS_Time, OS_Censor) ~ 1, data = Arkansas_SDF)
+km_fit <- survfit(Surv(survivalTimes, survivalTimesCensor) ~ 1, data = data)
 
 # Extraer tiempos y supervivencias estimadas
 time_points <- km_fit$time
@@ -1123,32 +1136,20 @@ plot_data <- data.frame(time_points, log_S)
 
 # Gráfico de validación exponencial
 grafico_comprobacion_exponencial <- ggplot(plot_data, aes(x = time_points, y = log_S)) +
-  geom_point() +
-  geom_smooth(method = "lm", se = TRUE, color = "blue") +  # Ajuste lineal con IC
-  labs(title = "Comprobación supuesto exponencial",
+  geom_point(size = 1,  position = position_jitter(width = 0.2, height = 0), color = "#1f78b4", alpha = 0.65) +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  labs(
+    title = "Comprobación supuesto exponencial",
     subtitle = "Gráfico Log S(t) vs. t",
-       x = "t",
-       y = "Log S(t)") +
-  ylim(-1,0.2)
-  theme_minimal()
-
-  print(grafico_comprobacion_exponencial)
-```
-
-```{r}
-# Ajustar el modelo de supervivencia de Weibull
-weibull_model <- survreg(Surv(OS_Time, OS_Censor) ~ 1, data = Arkansas_SDF, dist = "weibull")
-
-# Extraer los parámetros estimados
-gamma <- 1 / weibull_model$scale  # Parám. de forma
-lambda <- exp(weibull_model$coef) # Parám. de escala
-
-# Estimación de la función de supervivencia de Kaplan-Meier
-km_fit <- survfit(Surv(OS_Time, OS_Censor) ~ 1, data = Arkansas_SDF)
-
-# Extraer tiempos y supervivencias estimadas
-time_points <- km_fit$time
-S_t <- km_fit$surv
+    x = "t",
+    y = "Log S(t)"
+  ) +
+  ylim(-1, 0.2) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 16)
+  )
 
 # Aplicar transformación log(-log(S(t))) vs. log(t)
 log_time <- log(time_points)
@@ -1159,17 +1160,28 @@ plot_data <- data.frame(log_time, log_neg_log_S)
 
 # Gráfico
 grafico_comprobacion_weibull <- ggplot(plot_data, aes(x = log_time, y = log_neg_log_S)) +
-  geom_point(color = "blue") +
+  geom_point(color = "#1f78b4", alpha = 0.65) +
   geom_smooth(method = "lm", se = TRUE, color = "red") + # Línea de regresión con IC
   labs(title = "Comprobación supuesto Weibull",
     subtitle = "Gráfico Log(-Log S(t)) vs. Log t",
        x = "Log t",
        y = "Log(-Log S(t))") +
-  ylim(-10, 0) + # Aquí está la corrección
-  theme_minimal()
+  ylim(-10, 0) +
+  theme_minimal()+
+  theme(
+  plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 16)
+  )
 
-print(grafico_comprobacion_weibull)
+return(list(exponencial = grafico_comprobacion_exponencial, weibull = grafico_comprobacion_weibull))
+}
+graficos <- verificar(data = Arkansas_SDF, survivalTimes = Arkansas_SDF$OS_Time, survivalTimesCensor = Arkansas_SDF$OS_Censor)
+
+graficos$exponencial
+graficos$weibull
 ```
+
+
 
 ```{r}
 # Ajustar modelos paramétricos con distintas distribuciones
@@ -1180,6 +1192,10 @@ modelo_exp_backward <- step(modelo_exp, direction = "backward", trace = FALSE)
 
 # Resumir el modelo final ajustado
 modelo_exp_backward_summary <- summary(modelo_exp_backward)
+coeficientes <- modelo_exp_backward_summary$coefficients
+# Calcular Hazard Ratio (HR) aplicando la transformación e^(-beta)
+HR_exponencial <- exp(-coeficientes)
+print(HR_exponencial)
 print(modelo_exp_backward_summary)
 
 
@@ -1221,24 +1237,34 @@ ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables
        plot = grafico_surv_CYTO, 
        width = 10, height = 7, device = "pdf")
 
+# Comprobación supuesto Exponencial
 ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/Survival_graphs/grafico_comprobacion_exp.pdf", 
-       plot = grafico_comprobacion_exponencial, 
+       plot = graficos$exponencial, 
        width = 10, height = 7, device = "pdf")
 
+# Comprobación supuesto Weibull
 ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/Survival_graphs/grafico_comprobacion_weibull.pdf", 
-       plot = grafico_comprobacion_weibull, 
+       plot = graficos$weibull, 
        width = 10, height = 7, device = "pdf")
+
+
+```
+
+```{r}
+pred_backward <- predict(modelo_backward, type = "lp")
+pred_exp <-  -predict(modelo_exp_backward, type = "lp")
+pred_weibull <- -predict(modelo_weibull_backward, type = "lp")
+
 ```
 
 
 ## Residuos Cox-Snell
 
 ```{r}
-
 # Calcular los residuos de Cox-Snell para los tres modelos
-residuos_cox_snell_modelo_no_parametrico <- modelo_backward$linear.predictors
-residuos_cox_snell_modelo_exp <- modelo_exp_backward$linear.predictors
-residuos_cox_snell_modelo_weibull <- modelo_weibull_backward$linear.predictors
+residuos_cox_snell_modelo_no_parametrico <- pred_backward
+residuos_cox_snell_modelo_exp <- pred_exp
+residuos_cox_snell_modelo_weibull <- pred_weibull
 
 # Crear un nuevo conjunto de datos que contenga los residuos de Cox-Snell y la información de censura para cada modelo
 datos_cox_snell_no_parametrico <- data.frame(
@@ -1265,207 +1291,299 @@ grafico_no_parametrico <- ggplot() +
   geom_step(aes(x = modelo_kaplan_meier_no_parametrico$time, y = modelo_kaplan_meier_no_parametrico$surv), color = "blue") +
   geom_abline(intercept = 1, slope = -1, linetype = "dashed", color = "red") +
   labs(
-    title = "Residuos de Cox-Snell",
-    subtitle = "Modelo Semi-parametrico",
-    x = "Residuos de Cox-Snell",
+    subtitle = "Modelo Cox",
+    x = "",
     y = "Función de Supervivencia Acumulada"
   ) +
-  theme_minimal()
+  theme_minimal()+
+  xlim(-2, 6.5)+
+  theme(
+  plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size =14)
+  )
 
 grafico_exp <- ggplot() +
   geom_step(aes(x = modelo_kaplan_meier_exp$time, y = modelo_kaplan_meier_exp$surv), color = "blue") +
   geom_abline(intercept = 1, slope = -1, linetype = "dashed", color = "red") +
   labs(
-    title = "Residuos de Cox-Snell",
     subtitle = "Modelo Exponencial",
-    x = "Residuos de Cox-Snell",
-    y = "Función de Supervivencia Acumulada"
+    x = "",
+    y = ""
   ) +
-  theme_minimal()
+  theme_minimal()+
+  xlim(-6.5, 2)+
+    theme(
+  plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
+    plot.subtitle = element_text(hjust = 0.5, size = 14)
+  )
 
 grafico_weibull <- ggplot() +
   geom_step(aes(x = modelo_kaplan_meier_weibull$time, y = modelo_kaplan_meier_weibull$surv), color = "blue") +
   geom_abline(intercept = 1, slope = -1, linetype = "dashed", color = "red") +
   labs(
-    title = "Residuos de Cox-Snell", 
     subtitle = "Modelo Weibull",
-    x = "Residuos de Cox-Snell",
-    y = "Función de Supervivencia Acumulada"
+    x = "",
+    y = ""
   ) +
-  theme_minimal()
+  theme_minimal()+
+  xlim(-6.5, 2)+
+  theme(
+    plot.subtitle = element_text(hjust = 0.5, size = 14)
+  )
 
 # Colocar los tres gráficos uno al lado del otro
-grid.arrange(grafico_no_parametrico, grafico_exp, grafico_weibull, ncol = 3)
+graficoComparacionResCoxSnell <- grid.arrange(grafico_no_parametrico, 
+             grafico_exp, 
+             grafico_weibull, 
+             ncol = 3,
+             top = "Comparación residuos de Cox-Snell",
+             bottom = textGrob("Residuos de Cox-Snell", hjust = 0.5))
 
-# Gráfico Q-Q para residuos de deviance
-qqplot(qexp(ppoints(nrow(Arkansas_SDF)),1),residuos_cox_snell_modelo_no_parametrico)
-qqline(residuos_cox_snell_modelo_no_parametrico, col = "red")
+  
+ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/Survival_graphs/grafico_comparacion_res_CoxSnell.pdf", plot = graficoComparacionResCoxSnell, width = 10, height = 6)
 
 ```
-
 ## Residuos de Martingale
 
 ```{r}
+# Calculamos los residuos de Martingale
 residuos_martingale <- residuals(modelo_backward, type = "martingale")
-hist(residuos_martingale, 
-     main = "Distribución de los Residuos de Martingale", 
-     xlab = "Residuos de Martingale", 
-     col = "#1f78b4", 
-     border = "white")
 
-variables_backward = c("AGE", "B2M", "LDH","ALB", "MRI")
-for (variable in variables_backward) {
-  plot <- ggplot(data = Arkansas_SDF, aes_string(x = variable, y = "residuos_martingale")) +
-    geom_point(color = "#1f78b4", alpha = 0.6) +
-    geom_smooth(method = "loess", color = "red") +
-    labs(title = paste("Residuos de Martingale vs", variable),
-         x = variable,
-         y = "Residuos de Martingale") +
-    theme_minimal()
-  
-  # Mostrar el gráfico
-  print(plot)
-}
-```
 
-Histograma --\> Para detectar posibles anomalias. Ya que los residuos de martingale van de -infinito a 1.
-
-Gráficos --\> La curva roja es un suavizado que representa la tendencia de los residuos frente a los valores de la variable. La banda gris es el intervalo de confianza. Si la curva se desvía significativamente de la línea horizontal (en 0), puede indicar que la relación entre B2M y el riesgo no es lineal, lo cual podría violar los supuestos del modelo de Cox.
-
-La curva roja parece desviarse de la línea horizontal en valores altos de B2M, lo que sugiere que la relación entre B2M y el riesgo podría no ser lineal. Lo mismo para MRI.
-
-R nos devuelve una alerta indicando: Valores muy alejados del resto de los datos (outliers) pueden causar problemas en el cálculo, por lo que la desviación de la recta 0 puede deberse a esto.
-
-```{r}
 Sobrevida <- 1 - pweibull(modelo_exp_backward$y[,1], 
              shape=1,
              scale=exp(predict(modelo_exp_backward, type="lp")))
 
 Martingale_Exp <- modelo_exp_backward$y[,2]+log(Sobrevida)
 
-
-hist(Martingale_Exp, 
-     main = "Distribución de los Residuos de Martingale", 
-     xlab = "Residuos de Martingale", 
-     col = "#1f78b4", 
-     border = "white")
-
-variables_backward = c("AGE", "B2M", "LDH","ALB", "MRI")
-for (variable in variables_backward) {
-  plot <- ggplot(data = Arkansas_SDF, aes_string(x = variable, y = "Martingale_Exp")) +
-    geom_point(color = "#1f78b4", alpha = 0.6) +
-    geom_smooth(method = "loess", color = "red") +
-    labs(title = paste("Residuos de Martingale vs", variable),
-         x = variable,
-         y = "Residuos de Martingale") +
-    theme_minimal()
-  
-  # Mostrar el gráfico
-  print(plot)
-}
-```
-
-```{r}
 Sobrevida <- 1 - pweibull(modelo_weibull_backward$y[,1], 
                           shape=1/modelo_weibull_backward$scale,
                           scale=exp(predict(modelo_weibull_backward, type="lp")))
 
 Martingale_Weibull <- modelo_weibull_backward$y[,2]+log(Sobrevida)
+```
 
-hist(Martingale_Weibull, 
-     main = "Distribución de los Residuos de Martingale", 
-     xlab = "Residuos de Martingale", 
-     col = "#1f78b4", 
-     border = "white")
+```{r}
+# Crear histogramas con ggplot
+histMartingaleCox <- ggplot(data.frame(residuos_martingale), aes(x = residuos_martingale)) +
+  geom_histogram(fill = "#1f78b4", color = "white", bins = 30) +
+  labs(subtitle = "Cox", x = "", y = "Frecuencia") +
+  theme_minimal() + 
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 14)
+  )
 
+histMartingaleExp <- ggplot(data.frame(Martingale_Exp), aes(x = Martingale_Exp)) +
+  geom_histogram(fill = "#1f78b4", color = "white", bins = 30) +
+  labs(subtitle = "Exponencial", x = "", y = "") +
+  theme_minimal() + 
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 14)
+  )
+
+histMartingaleWeibull <- ggplot(data.frame(Martingale_Weibull), aes(x = Martingale_Weibull)) +
+  geom_histogram(fill = "#1f78b4", color = "white", bins = 30) +
+  labs(subtitle = "Weibull", x = "", y = "") +
+  theme_minimal() + 
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 12)
+  )
+
+# Mostrar los gráficos en una cuadrícula
+histComparacionMartingale <- arrangeGrob(
+  histMartingaleCox, 
+  histMartingaleExp, 
+  histMartingaleWeibull, 
+  ncol = 3,
+  top = "Distribución de los residuos de Martingale",
+  bottom = textGrob("Residuos de Martingale", hjust = 0.5)
+)
+
+plots <- list()
 variables_backward = c("AGE", "B2M", "LDH","ALB", "MRI")
 for (variable in variables_backward) {
-  plot <- ggplot(data = Arkansas_SDF, aes_string(x = variable, y = "Martingale_Weibull")) +
+  plotCox <- ggplot(data = Arkansas_SDF, aes_string(x = variable, y = "residuos_martingale")) +
     geom_point(color = "#1f78b4", alpha = 0.6) +
     geom_smooth(method = "loess", color = "red") +
-    labs(title = paste("Residuos de Martingale vs", variable),
-         x = variable,
+    labs(subtitle = "Modelo Cox",
+         x = "",
          y = "Residuos de Martingale") +
-    theme_minimal()
+    theme_minimal() + 
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 10)
+  )
   
-  # Mostrar el gráfico
-  print(plot)
+    plotExp <- ggplot(data = Arkansas_SDF, aes_string(x = variable, y = "Martingale_Exp")) +
+    geom_point(color = "#1f78b4", alpha = 0.6) +
+    geom_smooth(method = "loess", color = "red") +
+    labs(subtitle = "Modelo Exponencial",
+         x = "",
+         y = "") +
+    theme_minimal()+ 
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 10)
+  )
+  
+    plotWeibull <- ggplot(data = Arkansas_SDF, aes_string(x = variable, y = "Martingale_Weibull")) +
+    geom_point(color = "#1f78b4", alpha = 0.6) +
+    geom_smooth(method = "loess", color = "red") +
+    labs(subtitle = "Modelo Weibull",
+         x = "",
+         y = "") +
+    theme_minimal() + 
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 10)
+  )
+
+  plotComparacionMartingale <- arrangeGrob(
+            plotCox, 
+             plotExp, 
+             plotWeibull, 
+             ncol = 3,
+             top = "Comparación residuos de Martingale",
+             bottom = textGrob(variable, hjust = 0.5))
+
+    plots[[variable]] <- plotComparacionMartingale
+  grid.arrange(plots[[variable]])
+}
+  
+ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/Survival_graphs/grafico_hist_residuos_martingale.pdf",
+       plot = histComparacionMartingale, width = 10, height = 6)
+for (variable in variables_backward) {
+  ggsave(filename = paste0("/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/Survival_graphs/grafico_residuos_martingale_", variable, ".pdf"),
+         plot = plots[[variable]], width = 10, height = 6)
 }
 ```
 
+Histograma --\> Para detectar posibles anomalias. Ya que los residuos de martingale van de -infinito a 1.
 
+Gráficos --\> La curva roja es un suavizado que representa la tendencia de los residuos frente a los valores de la variable. La banda gris es el intervalo de confianza. Si la curva se desvía significativamente de la línea horizontal (en 0), puede indicar que la relación entre la variable y el riesgo no es lineal, lo cual podría violar los supuestos del modelo de Cox.
+
+La curva roja parece desviarse de la línea horizontal en valores altos de B2M, lo que sugiere que la relación entre B2M y el riesgo podría no ser lineal. Lo mismo para MRI.
+
+R nos devuelve una alerta indicando: Valores muy alejados del resto de los datos (outliers) pueden causar problemas en el cálculo, por lo que la desviación de la recta 0 puede deberse a esto.
 
 ## Deviance
 
-```{r,warning=FALSE}
+```{r}
 # Calcular los residuos de deviance
-residuos_deviance_modelo_no_parametrico <- residuals(modelo_backward, type = "deviance")
-residuos_deviance_modelo_exp <- residuals(modelo_exp_backward, type = "deviance")
-residuos_deviance_modelo_weibull <- residuals(modelo_weibull_backward, type = "deviance")
+residuosDevianceCox <- residuals(modelo_backward, type = "deviance")
+residuosDevianceExp <- -residuals(modelo_exp_backward, type = "deviance")
+residuosDevianceWeibull <- -residuals(modelo_weibull_backward, type = "deviance")
+```
 
 
-ggplot(data = Arkansas_SDF, aes(x = residuos_deviance_modelo_no_parametrico)) +
-  geom_histogram(binwidth = 0.5, fill = "skyblue", color = "black") +
-  labs(
-    title = "Histograma de Residuos de Deviance",
-    x = "Residuos de Deviance",
-    y = "Frecuencia"
-  ) +
+```{r,warning=FALSE}
+
+# Crear data.frames para cada modelo
+dfCoxDeviance <- data.frame(residuos = residuosDevianceCox)
+dfExpDeviance <- data.frame(residuos = residuosDevianceExp)
+dfWeibullDeviance <- data.frame(residuos = residuosDevianceWeibull)
+
+# QQ-Plot para Cox
+qqCoxDeviance <- ggplot(dfCoxDeviance, aes(sample = residuos)) +
+  stat_qq(color = "#1f78b4", alpha = 0.7) +
+  stat_qq_line(color = "red") +
+  labs(title = "Modelo Cox") +
   theme_minimal()
 
-# Boxplot de los residuos de deviance
-ggplot(data = Arkansas_SDF, aes(y = residuos_deviance_modelo_no_parametrico)) +
-  geom_boxplot(fill = "lightblue") +
-  labs(
-    title = "Boxplot de Residuos de Deviance",
-    y = "Residuos de Deviance"
-  ) +
+# QQ-Plot para Exponencial
+qqExpDeviance <- ggplot(dfExpDeviance, aes(sample = residuos)) +
+  stat_qq(color = "#1f78b4", alpha = 0.7) +
+  stat_qq_line(color = "red") +
+  labs(title = "Modelo Exponencial") +
   theme_minimal()
 
-# Gráfico Q-Q para residuos de deviance
-qqnorm(residuos_deviance_modelo_no_parametrico)
-qqline(residuos_deviance_modelo_no_parametrico, col = "red")
+# QQ-Plot para Weibull
+qqWeibullDeviance <- ggplot(dfWeibullDeviance, aes(sample = residuos)) +
+  stat_qq(color = "#1f78b4", alpha = 0.6) +
+  stat_qq_line(color = "red") +
+  labs(title = "Modelo Weibull") +
+  theme_minimal()
 
-variables_backward = c("AGE", "B2M", "LDH","ALB", "MRI")
-for (variable in variables_backward) {
-plot_modelo_no_parametrico <- ggplot(data = Arkansas_SDF, aes_string(x = variable, y = "residuos_deviance_modelo_no_parametrico")) +
-  geom_point() +
+# Mostrar los 3 gráficos en una fila
+
+qqComparacionDeviance <- arrangeGrob(qqCoxDeviance, 
+            qqExpDeviance, 
+            qqWeibullDeviance, 
+             ncol = 3,
+             top = "QQ-Plot residuos Deviance")
+
+
+grid.arrange(qqCoxDeviance, 
+            qqExpDeviance, 
+            qqWeibullDeviance, 
+             ncol = 3,
+             top = "QQ-Plot residuos Deviance")
+
+ ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/Survival_graphs/grafico_QQPLOT_residuos_deviance.pdf", plot = , width = 10, height = 6)
+
+plotsDeviance <- list()
+variables = c("AGE", "B2M", "LDH","ALB", "MRI")
+for (variable in variables) {
+plotCox <- ggplot(data = Arkansas_SDF, aes_string(x = variable, y = "residuosDevianceCox")) +
+  geom_point(color = "#1f78b4", alpha = 0.7) +
   geom_smooth(method = "loess", color = "red", se = TRUE) +
   labs(
-    title = paste("Deviance vs ",variable),
-    subtitle = "Modelo No parametrico",
-    x = variable,
+    subtitle = "Modelo Cox",
+    x = "",
     y = "Residuos de Deviance"
   ) +
-  theme_minimal()
+  theme_minimal() + 
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 10)
+  )
 
-plot_modelo_exp <- ggplot(data = Arkansas_SDF, aes_string(x = variable, y = "residuos_deviance_modelo_exp")) +
-  geom_point() +
+plotExp <- ggplot(data = Arkansas_SDF, aes_string(x = variable, y = "residuosDevianceExp")) +
+  geom_point(color = "#1f78b4", alpha = 0.6) +
   geom_smooth(method = "loess", color = "red", se = TRUE) +
   labs(
-    title = paste("Deviance vs ",variable),
     subtitle = "Modelo Exponencial",
-    x = variable,
-    y = "Residuos de Deviance"
+    x = "",
+    y = ""
   ) +
-  theme_minimal()
+  theme_minimal() + 
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 10)
+  )
 
-plot_modelo_weibull<- ggplot(data = Arkansas_SDF, aes_string(x = variable, y = "residuos_deviance_modelo_weibull")) +
-  geom_point() +
+plotWeibull<- ggplot(data = Arkansas_SDF, aes_string(x = variable, y = "residuosDevianceWeibull")) +
+  geom_point(color = "#1f78b4", alpha = 0.6) +
   geom_smooth(method = "loess", color = "red", se = TRUE) +
   labs(
-    title = paste("Deviance vs ",variable),
     subtitle = "Modelo Weibull",
-    x = variable,
-    y = "Residuos de Deviance"
+    x = "",
+    y = ""
   ) +
-  theme_minimal()
+  theme_minimal() + 
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    plot.subtitle = element_text(hjust = 0.5, size = 10)
+  )
 
-grid.arrange(plot_modelo_no_parametrico, plot_modelo_exp, plot_modelo_weibull, ncol = 3)
+  plotComparacionDeviance <- arrangeGrob(
+            plotCox, 
+             plotExp, 
+             plotWeibull, 
+             ncol = 3,
+             top = "Comparación residuos de Deviance",
+             bottom = textGrob(variable, hjust = 0.5))
+
+    plotsDeviance[[variable]] <- plotComparacionDeviance
+  grid.arrange(plotsDeviance[[variable]])
 }
-# Gráfico Q-Q para residuos de deviance
-qqnorm(residuos_deviance_modelo_no_parametrico)
-qqline(residuos_deviance_modelo_no_parametrico, col = "red")
+
+for (variable in variables) {
+  ggsave(filename = paste0("/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/Survival_graphs/grafico_residuos_deviance_", variable, ".pdf"), plot = plotsDeviance[[variable]], width = 10, height = 6)
+}
 ```
 
 ## Residuos Schoenfeld
@@ -1517,57 +1635,57 @@ tabla_aic
 # Concordancia
 
 ```{r}
-# Crear el objeto de supervivencia
-surv_obj <- Surv(Arkansas_SDF$OS_Time, Arkansas_SDF$OS_Censor)
-
 # Calcular el C-Index para el modelo de Cox
-concordance_cox <- concordance(modelo_backward, newdata = Arkansas_SDF)
-c_index_cox <- concordance_cox$concordance
+concordance_cox <- concordance(modelo_backward)
+cIndexCox <- concordance_cox$concordance
 
 # Calcular el C-Index para el modelo Exponencial
-concordance_exp <- concordance(modelo_exp_backward, newdata = Arkansas_SDF)
-c_index_exp <- concordance_exp$concordance
+concordance_exp <- concordance(modelo_exp_backward)
+cIndexExp <- concordance_exp$concordance
 
 # Calcular el C-Index para el modelo Weibull
-concordance_weibull <- concordance(modelo_weibull_backward, newdata = Arkansas_SDF)
-c_index_weibull <- concordance_weibull$concordance
+concordance_weibull <- concordance(modelo_weibull_backward)
+cIndexWeibull <- concordance_weibull$concordance
+```
 
-c_index_resultados <- tibble(
+```{r}
+# Calcular el GH-Index
+ghIndexCox <- GHCI(pred_backward)
+ghIndexExp <- GHCI(pred_exp)
+ghIndexWeibull <- GHCI(pred_weibull)
+
+resultadosIndices <- tibble(
   nombres_modelos = c("Modelo Cox", "Modelo Exponencial", "Modelo Weibull"),
-  valor_c_index = c(c_index_cox, c_index_exp, c_index_weibull)
+  valorCIndex = c(cIndexCox, cIndexExp, cIndexWeibull), 
+  valorGHIndex = c(ghIndexCox, ghIndexExp, ghIndexWeibull)
 )
 
 # Crear la tabla visual con `gt()`
-tabla_c_index <- c_index_resultados %>%
+tablaGHIndex <- resultadosIndices %>%
   gt() %>%
   tab_header(
-    title = "Comparación del C-Index entre Modelos"
+    title = "Comparación del GH-Index entre Modelos"
   ) %>%
   fmt_number(
-    columns = "valor_c_index",
-    decimals = 3
+    columns = c("valorCIndex", "valorGHIndex"),  
+    decimals = 4
   ) %>%
   cols_label(
     nombres_modelos = "Modelo",
-    valor_c_index = "Valor C-Index"
+    valorCIndex = "C-Index",  
+    valorGHIndex = "GH-Index"
   ) %>%
   tab_options(
     table.font.size = px(15),
     heading.title.font.size = px(18)
   )
 
-# Mostrar la tabla
-tabla_c_index
+# Mostrar la tabla en RStudio
+tablaGHIndex
 ```
 
 
 ```{r}
-# Cargar las librerías
-pred_backward <- predict(modelo_backward, type = "lp")
-pred_exp <-  -predict(modelo_exp_backward, type = "lp")
-pred_weibull <- -predict(modelo_weibull_backward, type = "lp")
-
-#tiempos = c(5,10,20,30,40,50,60,70,80,90,100)
 tiempos = c(5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100)
 # Crear el objeto timeROC para el modelo backward
 roc_backward <- timeROC(
@@ -1596,9 +1714,6 @@ roc_weibull<- timeROC(
   weighting = "marginal", 
   times = tiempos
 )
-```
-
-```{r}
 # Extraer las AUC de los objetos timeROC
 roc_backward_auc <- roc_backward$AUC  # AUC para cada tiempo del modelo backward
 roc_exp_auc <- roc_exp$AUC            # AUC para el modelo exponencial
@@ -1608,29 +1723,51 @@ roc_weibull_auc <- roc_weibull$AUC    # AUC para el modelo Weibull
 data <- data.frame(
   x = rep(roc_backward$times, 3),  # Los tiempos son iguales para todas las curvas
   y = c(roc_backward_auc, roc_exp_auc, roc_weibull_auc),  # Combina las AUC de las curvas
-  curva = rep(c("Modelo Backward", "Modelo Exponencial", "Modelo Weibull"), 
+  curva = rep(c("Modelo Cox", "Modelo Exponencial", "Modelo Weibull"), 
               each = length(roc_backward$times))  # Identificar cada curva
-)
-
-# Cargar la librería ggplot2
-if (!require("ggplot2")) install.packages("ggplot2")
-library(ggplot2)
+) 
 
 grafico_comparacion_auc <- ggplot(data, aes(x = x, y = y, color = curva)) +
   geom_line(size = 1.2) +      
   geom_point(size = 3) +
-  labs(title = "Comparación de AUC entre Modelos", 
+  labs(title = "", 
        x = "Tiempo", 
        y = "AUC", 
        color = "Modelos") +     
-  scale_color_manual(values = c("Modelo Backward" = "#1f77b4", 
+  scale_color_manual(values = c("Modelo Cox" = "#1f77b4", 
                                 "Modelo Exponencial" = "#ff7f0e", 
                                 "Modelo Weibull" = "#2ca02c")) + # Colores personalizados
-  theme_minimal()
+  theme_minimal() +
+  theme(legend.position = "none",
+      axis.text.x = element_text(size = 18),  # Tamaño del texto del eje X
+  axis.text.y = element_text(size = 18),  # Tamaño del texto del eje Y
+  axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+  axis.title.y = element_text(size = 18) 
+  )
 
 grafico_comparacion_auc
-grafico_comparacion_auc + ylim(0,1)
+grafico_comparacion_auc_amplio <- grafico_comparacion_auc + 
+  ylim(0,1) +
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+  axis.text.x = element_text(size = 18),  # Tamaño del texto del eje X
+  axis.text.y = element_text(size = 18),  # Tamaño del texto del eje Y
+  axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+  axis.title.y = element_text(size = 18),  # Tamaño del título del eje Y
+  legend.text = element_text(size = 21),
+  legend.title = element_text(size = 16),
+  legend.position = "right"
+)+ 
+  labs(y = "")
+grafico_comparacion_auc_amplio
+# Guardar el gráfico de comparación de AUC
+ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/Survival_graphs/grafico_comparacion_auc.pdf", 
+       plot = grafico_comparacion_auc, 
+       width = 10, height = 7, device = "pdf")
 
+# Guardar el gráfico de comparación de AUC
+ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/Survival_graphs/grafico_comparacion_auc_amplio.pdf", 
+       plot = grafico_comparacion_auc_amplio, 
+       width = 10, height = 7, device = "pdf")
 ```
 
 ```{r}
@@ -1703,6 +1840,89 @@ legend("bottomright",
        title = "Leyenda de tiempos")
 
 ```
+### Comprobación de los protocolos estándares
+
+```{r}
+Arkansas_SDF <- Arkansas_SDF %>%
+  mutate(
+    ISS = case_when(
+      B2M < 3.5 & ALB >= 3.5 ~ "ISS I",
+      B2M >= 5.5 ~ "ISS III",
+      TRUE ~ "ISS II"
+    )
+  )
+
+Arkansas_SDF <- Arkansas_SDF %>%
+  mutate(
+    R_ISS = case_when(
+      ISS == "ISS I" & Cyto_Abn == 0 & LDH_flag == 0 ~ "R-ISS I",
+      ISS == "ISS III" | Cyto_Abn == 1 | LDH == 1 ~ "R-ISS III",
+      TRUE ~ "R-ISS II"
+    )
+  )
+```
+
+```{r}
+grafico_ISS <- ggsurvplot(
+  survfit(Surv(OS_Time, OS_Censor) ~ ISS, data = Arkansas_SDF), 
+  data = Arkansas_SDF, 
+  pval = TRUE,
+  palette = c("#0072B2", "#D95F02", "#F0E442", "#999999"),  # Define la paleta de colores
+  legend.labs = c("Estadio 1", "Estadio 2", "Estadio 3"),  # Texto de la leyenda
+  xlab = "Tiempo (meses)",  # Cambiar texto del eje X
+  ylab = "Probabilidad de supervivencia (%)",  # Cambiar texto del eje Y
+  title = "ISS"
+  )
+
+grafico_ISS <- grafico_ISS$plot +  
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+  axis.text.x = element_text(size = 18),  # Tamaño del texto del eje X
+  axis.text.y = element_text(size = 18),  # Tamaño del texto del eje Y
+  axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+  axis.title.y = element_text(size = 18),  # Tamaño del título del eje Y
+  legend.text = element_text(size = 20),
+  legend.title = element_text(size = 16)
+)+ 
+  guides(color = guide_legend(override.aes = list(linetype = 0, shape = 15, size = 5)))
+
+grafico_ISS
+
+```
+
+```{r}
+grafico_RISS <- ggsurvplot(
+  survfit(Surv(OS_Time, OS_Censor) ~ R_ISS, data = Arkansas_SDF),
+  data = Arkansas_SDF, 
+  pval = TRUE,
+  palette = c("#0072B2", "#D95F02", "#F0E442", "#999999"),  # Define la paleta de colores
+  legend.labs = c("Estadio I", "Estadio II", "Estadio III"),  # Texto de la leyenda
+  xlab = "Tiempo (meses)",  # Cambiar texto del eje X
+  ylab = "Probabilidad de supervivencia (%)",  # Cambiar texto del eje Y
+  title = "R-ISS"
+  )
+
+
+grafico_RISS <- grafico_RISS$plot +  
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+  axis.text.x = element_text(size = 18),  # Tamaño del texto del eje X
+  axis.text.y = element_text(size = 18),  # Tamaño del texto del eje Y
+  axis.title.x = element_text(size = 18), # Tamaño del título del eje X
+  axis.title.y = element_text(size = 18),  # Tamaño del título del eje Y
+  legend.text = element_text(size = 20),
+  legend.title = element_text(size = 16)
+)+ 
+  guides(color = guide_legend(override.aes = list(linetype = 0, shape = 15, size = 5)))
+
+grafico_RISS
+```
+```{r}
+ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/Survival_graphs/grafico_ISS.pdf", 
+       plot = grafico_ISS, 
+       width = 10, height = 7, device = "pdf")
+ggsave(filename = "/Users/marc/Downloads/TFG/R/TFGMarcArrom/Output/Graphs_tables/Survival_graphs/grafico_RISS.pdf", 
+       plot = grafico_RISS, 
+       width = 10, height = 7, device = "pdf")
+```
 
 # OTROS
 
@@ -1748,6 +1968,4 @@ ggplot(Arkansas, aes(x = AGE)) +
   geom_segment(aes(x = quantile(Arkansas$AGE, 0.25), y = -1, yend = 115 , xend = quantile(Arkansas$AGE, 0.25)), linetype = 2, linewidth = 0.8) +
   annotate(geom = "text", x = quantile(Arkansas$AGE, 0.25), y = 120, label = "Q1") 
 ```
-
-
 
